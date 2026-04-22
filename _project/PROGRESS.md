@@ -32,7 +32,7 @@ Onboarding wizard build (Part 2) is the immediate next task.
 - [x] Initialize Next.js project with App Router
 - [x] Set up Supabase project (database + auth)
 - [ ] Configure Tailwind CSS
-- [ ] Set up GitHub repo
+- [x] Set up GitHub repo
 - [ ] Define database schema (leads, conversations, messages, users)
 - [ ] Set up Inngest for background jobs
 - [x] Create .env.example with all required environment variables
@@ -80,7 +80,7 @@ Onboarding wizard build (Part 2) is the immediate next task.
 - [ ] Wireframe and build Developer Panel — tabs: Workspaces, Client Data, Platform Health, Billing (billing tab scaffold only)
 - [ ] Decide how wins data is consumed by the AI engine at conversation time (system prompt injection vs. embedding/retrieval vs. tone-only reference)
 - [ ] Submit Meta Developer App for review — already listed, confirm still open (see [[URGENT]])
-- [ ] Set up GitHub repo and push initial commit
+- [x] Set up GitHub repo and push initial commit
 - [ ] Set up Inngest for background jobs
 - [ ] Configure Tailwind CSS v4 (verify setup is correct in scaffolded project)
 

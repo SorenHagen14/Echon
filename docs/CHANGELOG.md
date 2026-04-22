@@ -4,6 +4,22 @@ All meaningful changes to the project are logged here.
 
 ---
 
+## [2026-04-22] — GitHub Repo Live
+
+### Added
+- Repo created at https://github.com/SorenHagen14/Echon (private)
+- Initial commit pushed: 57 files, 10,849 lines — full Phase 1 scaffolding
+  (Next.js + Supabase schema + project docs + wireframes)
+- Git identity configured globally (Soren Hagen / sorenhagen14@gmail.com)
+- GitHub CLI (`gh`) installed via Homebrew; credential helper wired up via `gh auth setup-git`
+
+### Fixed
+- Removed stray `~/.git` repo that had been treating the entire home directory
+  as a git tree — would have caused a sensitive-file leak if it had successfully
+  pushed. Replaced with a proper repo at the Echon project root.
+
+---
+
 ## [2026-04-21] — Database Schema
 
 ### Added
