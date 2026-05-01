@@ -72,39 +72,20 @@ seeing `noreply@supabase.io` in their inbox damages credibility.
 
 ---
 
-## [URGENT] Encrypt OAuth tokens in `integrations` table
-**Priority:** High — must be resolved before the first non-test Client
-connects a real Google account.
-**Blocked by:** Choosing an approach (pgsodium column-level encryption vs.
-Supabase Vault) and writing a follow-up migration.
-
-### What's needed
-- Pick approach:
-  - **pgsodium** — column-level encryption keyed via Supabase's vault.
-    Lower friction; writes/reads transparent at the SQL layer.
-  - **Supabase Vault** — store tokens as Vault secrets, reference by id
-    from the `integrations` row. More secure separation; more app code
-    changes.
-- Write follow-up migration that wraps `integrations.oauth_access_token`
-  and `integrations.oauth_refresh_token`
-- Update Phase 4 calendar OAuth code to read/write through the encryption
-  layer (not directly against the columns)
-
-### Why it matters
-Migration 004 (Phase 3) creates the `integrations` table with OAuth
-tokens stored as plain text. There's a TODO comment in the migration
-flagging this. Acceptable for the dev / test workspace I'll use during
-Phase 4, but a hard blocker before pilot Clients connect real Google
-accounts — a Supabase compromise would expose every connected Client's
-calendar tokens.
-
-### Next action
-Land before Phase 4 calendar OAuth implementation, or in parallel with it.
-Latest acceptable point: before the first pilot Client onboards.
+_Add new urgent items above this line using the same format._
 
 ---
 
-_Add new urgent items above this line using the same format._
+## Resolved
+
+### [RESOLVED 2026-05-01] Encrypt OAuth tokens in `integrations` table
+Resolved in migration 004 (Phase 3) before apply. Plain-text columns
+(`oauth_access_token`, `oauth_refresh_token`) replaced with
+`oauth_secret_id uuid` pointing into `vault.secrets`. A BEFORE DELETE
+trigger on `integrations` cleans up the vault secret automatically.
+`vault.decrypted_secrets` view is restricted to privileged roles, so
+userland (anon / authenticated) cannot decrypt even if it bypasses RLS
+on `integrations` — it only sees the uuid pointer.
 
 ---
 

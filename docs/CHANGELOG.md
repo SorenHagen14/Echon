@@ -4,6 +4,40 @@ All meaningful changes to the project are logged here.
 
 ---
 
+## [2026-05-01] — Phase 3 follow-up: OAuth tokens via Supabase Vault
+
+Updated migration 004 (still unapplied) to store OAuth tokens encrypted in
+Supabase Vault rather than plain-text columns. Done as an in-place edit
+since the migration hasn't been applied yet — keeps the change history
+clean (no follow-up migration to apply).
+
+### Changed in migration 004
+- Added `create extension if not exists supabase_vault;` at the top
+- `integrations` table: replaced `oauth_access_token text` and
+  `oauth_refresh_token text` with `oauth_secret_id uuid` (pointer into
+  `vault.secrets`). Tokens are stored as a JSON blob
+  `{ access_token, refresh_token }` inside the vault secret.
+- New trigger `integrations_delete_vault_secret` (BEFORE DELETE) removes
+  the vault secret automatically when an integration row is deleted —
+  prevents orphaned secrets.
+- Inline comment block in the migration documents the access pattern
+  (write via `vault.create_secret`, read via `vault.decrypted_secrets`).
+
+### Security model
+- `vault.decrypted_secrets` view is restricted to `postgres` /
+  `service_role`. Userland (`anon` / `authenticated`) cannot decrypt
+  tokens even if it bypasses RLS on `integrations`.
+- All OAuth read/write happens server-side using the Supabase service
+  role. Tokens are never sent to the client.
+- A Supabase database compromise exposes only the `oauth_secret_id`
+  uuids, not the tokens — an attacker would also need the Vault root key
+  (managed by Supabase, not stored in the database).
+
+### URGENT.md
+- "Encrypt OAuth tokens" item moved from active to "Resolved" section.
+
+---
+
 ## [2026-05-01] — Pivot Phase 3: Schema reset (migration written, not yet applied)
 
 Wrote `db/migrations/004_pivot_to_voice.sql` (and the timestamped Supabase
@@ -63,10 +97,11 @@ with `npx supabase db push --linked`.
     inline highlights
   - `appointments` — workspace, customer, call (nullable), service type,
     scheduled_for, duration, status, gcal event id, notes
-  - `integrations` — workspace + provider unique; OAuth tokens, config
-    jsonb, status, last_error. **Note:** OAuth tokens stored plain-text
-    initially; TODO comment in migration flags pgsodium/Vault encryption
-    before the first non-test Client connects.
+  - `integrations` — workspace + provider unique; OAuth tokens stored
+    encrypted in Supabase Vault (`oauth_secret_id uuid` pointer into
+    `vault.secrets`); `oauth_expires_at`, config jsonb, status,
+    last_error. A BEFORE DELETE trigger removes the vault secret
+    automatically when an integration row is deleted.
 
 ### Pending
 - Run `npx supabase db push --linked` to apply

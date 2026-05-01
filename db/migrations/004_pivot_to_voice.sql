@@ -21,6 +21,16 @@
 begin;
 
 -- ---------------------------------------------------------------------------
+-- 0. Extensions
+-- ---------------------------------------------------------------------------
+-- Supabase Vault — encrypted secret storage. Used by `integrations` table to
+-- hold OAuth tokens. Pre-enabled on Supabase projects; explicit declaration
+-- is idempotent (no-op if already created).
+
+create extension if not exists supabase_vault;
+
+
+-- ---------------------------------------------------------------------------
 -- 1. Drop pre-pivot tables (FK-safe order)
 -- ---------------------------------------------------------------------------
 -- DROP TABLE cascades triggers, indexes, RLS policies, and FK references on
@@ -411,19 +421,37 @@ create trigger appointments_updated_at
 -- Third-party connections per workspace (Google Calendar today; Jobber /
 -- Housecall Pro / ServiceTitan future).
 --
--- TODO: oauth_access_token / oauth_refresh_token are stored as plain text
--- here. Before the first non-test Client connects a real Google account,
--- wrap these with pgsodium (Supabase's column-level encryption) or store
--- via Supabase Vault. Tracked in URGENT.md.
+-- OAuth tokens are stored in Supabase Vault, NOT in this table. The
+-- `oauth_secret_id` column is a uuid pointer into `vault.secrets`. The
+-- secret itself is a JSON blob: { access_token, refresh_token }.
+--
+-- Access pattern (Phase 4 calendar OAuth code):
+--   -- write (server-side, service role):
+--   select vault.create_secret(
+--     json_build_object(
+--       'access_token', $1, 'refresh_token', $2
+--     )::text,
+--     format('integration_%s_%s', $workspace_id, $provider),
+--     'OAuth tokens for ...'
+--   );
+--   -- read (server-side, service role):
+--   select decrypted_secret from vault.decrypted_secrets where id = $1;
+--
+-- The vault.decrypted_secrets view is restricted to privileged roles
+-- (postgres / service_role). Userland (anon / authenticated) cannot decrypt
+-- even if they bypass RLS on integrations — they only get the uuid pointer.
+--
+-- Lifecycle: a BEFORE DELETE trigger on integrations removes the vault
+-- secret automatically (see Section 7c below). Updating tokens is done via
+-- vault.update_secret(id, new_payload) without changing oauth_secret_id.
 
 create table integrations (
   id                    uuid primary key default gen_random_uuid(),
   workspace_id          uuid not null references workspaces(id) on delete cascade,
   provider              integration_provider not null,
 
-  oauth_access_token    text,                                -- TODO: encrypt before non-test usage
-  oauth_refresh_token   text,                                -- TODO: encrypt before non-test usage
-  oauth_expires_at      timestamptz,
+  oauth_secret_id       uuid,                                -- pointer into vault.secrets; null until first connect
+  oauth_expires_at      timestamptz,                         -- access-token expiry; refresh-token expiry tracked in vault payload if needed
 
   config                jsonb not null default '{}'::jsonb,  -- e.g. { calendar_id, calendar_name } for google_calendar
   status                integration_status not null default 'connected',
@@ -490,8 +518,10 @@ create policy "integrations: owner access"
 
 
 -- ---------------------------------------------------------------------------
--- 7. Bootstrap: auto-provision agent_configs on workspace creation
+-- 7. Triggers
 -- ---------------------------------------------------------------------------
+
+-- 7a. Bootstrap: auto-provision agent_configs on workspace creation
 -- Mirrors the existing handle_new_workspace pattern that auto-creates
 -- workspace_settings on workspace insert (see migration 001 + 003). We
 -- extend that function rather than add a second trigger so the two rows are
@@ -509,6 +539,30 @@ begin
   return new;
 end;
 $$;
+
+
+-- 7b. Vault cleanup: remove the OAuth secret when an integration is deleted.
+-- Without this, deleting an integrations row would orphan the vault secret.
+-- SECURITY DEFINER + explicit search_path is the standard hardening for
+-- triggers that touch privileged schemas (matches migration 003 pattern).
+
+create or replace function delete_integration_vault_secret()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, vault, pg_temp
+as $$
+begin
+  if old.oauth_secret_id is not null then
+    delete from vault.secrets where id = old.oauth_secret_id;
+  end if;
+  return old;
+end;
+$$;
+
+create trigger integrations_delete_vault_secret
+  before delete on integrations
+  for each row execute function delete_integration_vault_secret();
 
 
 commit;
