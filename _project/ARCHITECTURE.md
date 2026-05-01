@@ -2,10 +2,13 @@
 
 ## Stack
 - Frontend + Backend: Next.js (App Router) — deployed on Vercel
-- Database: Supabase (PostgreSQL) — includes Auth and real-time
-- AI: Anthropic API — Haiku (classification) / Sonnet (conversation)
-- Meta Integration: Meta Graph API + Webhooks
-- Background Jobs: Inngest
+- Database: Supabase (PostgreSQL) — includes Auth, RLS, real-time
+- AI: Anthropic API — Sonnet for in-call reasoning, Haiku/Sonnet for post-call summarization
+- Voice / Telephony: **Vapi** (orchestrates STT + LLM + TTS + telephony in one platform)
+  - STT: Deepgram (Vapi default)
+  - TTS: ElevenLabs or Cartesia (provider-configurable per agent)
+  - Numbers + PSTN: Twilio (provisioned through Vapi)
+- Background Jobs: Inngest (post-call processing, calendar sync, notifications)
 - Version Control: GitHub
 - Hosting: Vercel (frontend/API) + Supabase (database)
 
@@ -14,60 +17,94 @@
 - @supabase/supabase-js
 - @anthropic-ai/sdk
 - inngest
+- @vapi-ai/server-sdk (Vapi server SDK for call lifecycle + agent management)
+- googleapis (Google Calendar integration)
 - zod (data validation)
 - tailwindcss (styling)
 
+## Voice Provider Abstraction
+All Vapi calls are wrapped behind a thin `VoiceProvider` interface in
+`src/lib/voice/`. Application code never imports the Vapi SDK directly —
+it goes through the abstraction. This is the only voice-layer abstraction
+worth building upfront. Rationale and migration path: see [[DECISIONS]]
+(2026-05-01 — Telephony provider).
+
 ## Core Modules
-1. Webhook Receiver — Receives incoming DMs from Meta, routes to Queue
-2. Queue Manager — Prioritizes incoming messages by tier
-3. AI Conversation Engine — Handles message generation, phase logic, guardrails
-4. Warmth Scorer — Evaluates and updates lead score after each message
-5. CRM Engine — Creates and updates lead records
-6. Lead Magnet Dispatcher — Detects keyword triggers, sends assets
-7. Booking Flow Handler — Sends booking link, detects confirmation
-8. Learning Review System — Flags candidate improvements, stores approved changes
-9. Dashboard API — Serves data to the frontend interface
-10. Notification System — Tags conversations, triggers manual attention flags
+1. **Voice Agent Layer** — Vapi-hosted assistants per Client; configured with
+   greeting, services, pricing rules, business hours, escalation logic
+2. **Call Lifecycle Handler** — webhook receiver at `/api/webhooks/vapi` for
+   call status, end-of-call reports, function-call invocations
+3. **Voice Tools API** — function-calling endpoints the agent invokes mid-call:
+   `lookup_customer`, `check_availability`, `book_appointment`,
+   `escalate_to_human`, `transfer_call`
+4. **Transcript & Summary Pipeline** — Inngest job; runs after call ends.
+   Anthropic Sonnet extracts structured fields (customer name, address,
+   service requested, urgency, scheduled slot, follow-up needed)
+5. **Scheduling Engine** — calendar availability lookups, appointment
+   creation, conflict detection, sync with Google Calendar
+6. **CRM Engine** — customer records, call history, appointment history,
+   tags, notes
+7. **Notification System** — alerts to Client (SMS / email / in-app) for
+   after-hours emergencies, escalations, and missed-call recoveries
+8. **Dashboard API** — serves call logs, appointment lists, and stats to UI
+9. **Onboarding / Agent Provisioning** — wizard-driven Vapi assistant
+   creation, number provisioning, calendar OAuth, test-call flow
 
 ## Directory → Module Map
 ```
 src/
-├── app/                    ← Next.js pages and UI components
-│   ├── dashboard/          ← Dashboard page
-│   ├── messages/           ← 3-column DM feed (lead list / chat / details)
-│   ├── workflows/          ← Lead magnet + follow-up sequence builder
-│   └── settings/           ← Account, connections, AI config, billing
-├── server/                 ← API routes and business logic
-│   ├── webhooks/           ← Meta webhook receiver
-│   ├── queue/              ← Queue Manager (priority tier logic)
-│   ├── crm/                ← CRM Engine (lead records, status, warmth)
-│   └── notifications/      ← Urgency flags, in-app alerts
-├── ai/                     ← All AI logic
-│   ├── engine/             ← Conversation generation (Sonnet)
-│   ├── classifier/         ← Intent + phase classification (Haiku)
-│   ├── scorer/             ← Warmth Scorer
-│   └── learning/           ← Learning Review System (feedback storage)
-├── integrations/           ← Third-party API clients
-│   ├── meta/               ← Meta Graph API (send/receive DMs)
-│   └── calendly/           ← Calendly / Cal.com webhook (future)
+├── app/
+│   ├── dashboard/          ← Today's snapshot (calls, bookings, stats)
+│   ├── calls/              ← Call log + call detail views
+│   ├── schedule/           ← Upcoming appointments / calendar view
+│   ├── settings/           ← Account, voice agent, integrations, billing
+│   └── onboarding/         ← First-time setup wizard
+├── lib/
+│   └── voice/              ← VoiceProvider interface + Vapi adapter
+├── server/
+│   ├── webhooks/
+│   │   └── vapi/           ← Call lifecycle webhook
+│   ├── voice-tools/        ← Function-call handlers (book, check, lookup)
+│   ├── crm/                ← Customer + call records
+│   ├── scheduling/         ← Calendar sync, appointment logic
+│   └── notifications/      ← After-hours alerts, escalations
+├── ai/
+│   ├── summarizer/         ← Post-call structured-field extraction
+│   └── classifier/         ← Urgency / outcome classification
+├── integrations/
+│   ├── vapi/               ← Vapi API client (used only inside lib/voice/)
+│   ├── google-calendar/    ← OAuth + availability + event creation
+│   └── jobber/             ← Future: CRM/dispatch integration (BACKLOG)
 └── db/                     ← Supabase schema, queries, migrations
 ```
 
 ## Auth
 - Supabase Auth (email+password and Google OAuth)
 - Two roles:
-  - **Admin** — the Echon developer (internal tooling, platform management). Not a role end users hold.
-  - **Client** — any paying end user of Echon. All Clients access the same product surface; there is no tiered permission within the Client role yet.
-  - Future: a "workspace owner vs. team member" distinction within the Client role is planned but explicitly out of scope until after MVP. Do not build it early.
+  - **Admin** — the Echon developer (internal platform tooling)
+  - **Client** — any paying HVAC business using Echon
+- A future "owner vs. dispatcher vs. tech" role distinction within Client is
+  acknowledged but explicitly out of scope until post-MVP.
 
 ## Data Isolation
-- Every Supabase table that holds Client-scoped data (leads, conversations, messages, warmth scores, workflows, settings, etc.) must have Postgres Row-Level Security (RLS) enabled with an explicit policy.
-- RLS is non-negotiable and must be in place from the first migration. Do not rely on application-layer filtering alone.
-- Each Client is isolated to their own workspace. No Client can read or write another Client's data under any circumstance.
-- Impersonation of Client sessions is prohibited — treat it as a compliance concern. Use structured logs and opt-in diagnostic tooling for debugging instead.
-- See [[DECISIONS]] — Admin = developer, Client = end user; RLS enforced for Client isolation.
+- Every Supabase table holding Client-scoped data (customers, calls,
+  appointments, agent_configs, integrations, etc.) has Postgres RLS enabled
+  with an explicit policy.
+- RLS is enforced from the first migration. Application-layer filtering is
+  not sufficient.
+- Each Client is isolated to their own workspace. No cross-Client data
+  access permitted.
+- See [[DECISIONS]] — Admin = developer, Client = end user.
 
-## Data Flow (basic)
-Lead sends DM → Meta fires webhook → Queue Manager assigns priority
-→ AI Engine generates response → Warmth Scorer updates score
-→ CRM Engine updates record → Response sent back via Graph API
+## Data Flow (basic — inbound call)
+Customer dials Client's Echon number (Twilio)
+→ Vapi answers, runs the assistant: STT → Anthropic Sonnet (with tools) → TTS
+→ Mid-call: agent invokes `check_availability` / `book_appointment` / etc.
+   via function calls hitting `/api/voice/tools/*`
+→ Call ends; Vapi POSTs end-of-call report to `/api/webhooks/vapi`
+→ Inngest job processes transcript:
+   – Anthropic extracts structured fields
+   – CRM updated (customer record created/updated, call logged)
+   – Appointment created (if booked) + Google Calendar event written
+   – Notifications fired (after-hours alerts, escalations)
+→ Dashboard reflects new call + appointment in real time (Supabase realtime)

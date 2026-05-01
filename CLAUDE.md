@@ -14,19 +14,27 @@ Before doing anything, read these files in order:
 ## Read When Building UI
 Before writing any frontend code, read the relevant wireframe in `_wireframes/`:
 - `dashboard.md` — main dashboard
-- `conversation_view.md` — 3-column DM feed (Messages tab)
-- `crm_lead_record.md` — individual lead profile page
+- `call_log.md` — `/calls` list view
+- `call_detail.md` — `/calls/[id]` detail view
+- `voice_agent_config.md` — Settings → Voice agent detail page
 - `onboarding.md` — first-time setup wizard
 - `settings.md` — all settings sections
 
+## Product
+Echon is an **AI voice receptionist** for blue-collar service businesses.
+Initial vertical: **HVAC** (independent shops, 3-15 trucks). Other
+verticals (plumbing, roofing, electrical, deck/fence) are explicit future
+expansion — not MVP scope. The product pivoted from an Instagram DM setter
+on 2026-05-01; do not reintroduce DM/messaging concepts.
+
 ## Key Rules
-- Stack is finalized: Next.js (App Router) + Supabase + Anthropic API + Inngest + Vercel. Do not suggest alternatives.
-- Two roles: **Admin** = the Echon developer (internal platform dashboard). **Client** = the paying end user of the app. These are not agency-owner vs. viewer — they are developer vs. customer. Always respect this boundary.
+- Stack is finalized: Next.js (App Router) + Supabase + Anthropic API + Inngest + Vercel + **Vapi** (telephony). Do not suggest alternatives.
+- All Vapi access goes through `src/lib/voice/` — application code never imports the Vapi SDK directly. The `VoiceProvider` interface is the only voice-layer abstraction; keep it thin.
+- Two roles: **Admin** = the Echon developer (internal platform dashboard). **Client** = the paying HVAC business using Echon. Always respect this boundary.
 - Every Supabase table holding Client-scoped data must have Postgres RLS enabled with an explicit policy. Never rely on application-layer filtering alone for data isolation.
-- AI mode (Manual / Hybrid / Auto) lives in the Messages tab as a segmented bar — not the top nav.
-- Default AI mode on first Client app load: **Hybrid**.
-- Auto mode locks the send box for everyone (Client and Admin) — switching to Manual or Hybrid is required to type. This is a user-error prevention rule, not a permissions rule.
-- Top nav order: Dashboard · Messages · Workflows · Settings
+- Top nav order: **Dashboard · Calls · Schedule · Settings**.
+- Voice agent settings live under Settings → Voice agent (see `_wireframes/voice_agent_config.md`).
+- Three core workflows (see `_project/WORKFLOWS.md`): WF-01 (book), WF-02 (quote request), WF-03 (after-hours triage). Workflow selection is implicit (driven by agent prompt + tools + Client config), not branched in code.
 - Do not build anything in BACKLOG.md unless explicitly asked.
 - Update `_project/PROGRESS.md` whenever a phase or task is completed.
 - Log all meaningful changes to `docs/CHANGELOG.md` with a date and description.

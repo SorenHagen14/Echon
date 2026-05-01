@@ -1,165 +1,143 @@
 # Wireframe — Settings
 
-## Purpose
-Full account and app configuration. Accessible from the top nav. Organized into
-clearly labeled sections so users can find and edit anything from onboarding
-setup to billing without leaving the app.
+Reachable from top nav. Left-rail subnav, content on the right.
 
-## Top Nav (global — appears on every page)
-- Logo (left)
-- Nav links: Dashboard · Messages · Workflows · Settings
-- Notifications bell (right) — in-app only
-- User avatar (right)
+## Top nav (global)
+`Echon logo · Dashboard · Calls · Schedule · Settings · [notifications] · [user]`
 
-## Settings Navigation (left sidebar within Settings page)
-- Account
-- Connections
-- AI Configuration
-- Offer & Brand Voice
-- Notifications
-- Billing
+## Sections (left rail)
+1. Account
+2. Voice agent
+3. Business hours
+4. Services & pricing
+5. After-hours & escalation
+6. Integrations
+7. Notifications
+8. Team *(post-MVP placeholder)*
+9. Billing
 
 ---
 
-## Section 1 — Account
+## 1. Account
 
 ### Profile
-- First Name (editable)
-- Last Name (editable)
-- Email Address (editable)
-- Password (change password flow — current password + new password + confirm)
+- First name · Last name · Email · Password (change flow)
+- Display name
+- Timezone
+- 2FA toggle
 - Save Changes button
 
-### Danger Zone
-- "Delete Account" button (red, bottom of section)
-- Clicking opens confirmation modal:
-  "Are you sure you want to delete your account? This will permanently remove
-  all your data including leads, conversations, and settings. This cannot be
-  undone."
-  - Type "DELETE" to confirm
-  - Confirm Delete / Cancel buttons
+### Danger zone
+- "Delete Account" (red, bottom of section)
+- Confirmation modal: "Are you sure? This permanently removes all your
+  data including calls, transcripts, recordings, customer records, and
+  settings. Cannot be undone." Type "DELETE" to confirm.
 
 ---
 
-## Section 2 — Connections
+## 2. Voice agent
+Mirrors onboarding Step 8 plus advanced controls.
+- Agent name, voice, tone, speaking rate
+- Greeting (editable, with variable insertion)
+- System prompt addendum (advanced; free-text — appended to base prompt)
+- "Test call" button — places a call to user's verified phone (sandbox,
+  doesn't count against billing)
+- Call recording on/off (default: on; legal disclosure auto-injected when
+  required by state — see Section 6 below)
 
-### Purpose
-Central hub for all third-party integrations. Each integration shows its
-current status and connection controls.
+See `voice_agent_config.md` for the full detail page.
 
-### Instagram
+---
+
+## 3. Business hours
+- Day × hours grid (same as onboarding Step 5)
+- Holidays
+- Timezone
+
+---
+
+## 4. Services & pricing
+- Editable list from onboarding Step 4
+- Add / remove / reorder services
+- Per-service: book-direct toggle, pricing note, quote-required override
+
+---
+
+## 5. After-hours & escalation
+- Mode (messages-only / escalate / live-transfer)
+- On-call number(s) + rotation
+- Emergency keyword tuning (advanced — words that elevate urgency
+  classification, e.g. "gas," "water," "smoke")
+
+---
+
+## 6. Integrations
+Central hub for all third-party integrations. Each row shows current
+status + connection controls.
+
+### Google Calendar
 - Status badge: Connected ✅ / Disconnected ⚠️ / Error ❌
-- Connected account handle shown if connected (e.g., @yourhandle)
-- "Connect Instagram" button (if disconnected) → Meta OAuth flow
-- "Disconnect" button (if connected) → confirmation modal before disconnecting
-- Error state shows plain-language description of what went wrong + retry button
+- Connected account email shown if connected
+- Calendar selected (dropdown to change)
+- "Reconnect" / "Disconnect" buttons
+- Error state: plain-language description + retry button
 
-### Calendly / Cal.com
-- Status badge: Connected ✅ / Not connected
-- "Connect Calendly" button → OAuth
-- "Connect Cal.com" button → OAuth
-- Used to detect booking confirmations automatically
-- *(Full implementation tracked in Backlog)*
+### Phone number
+- Provisioned number shown
+- Forwarding setup instructions (per-carrier guides)
+- Port-in request (placeholder — Coming soon)
 
 ### Coming Soon (grayed out)
-- WhatsApp
-- iMessage *(feasibility TBD)*
+- Jobber
+- Housecall Pro
+- ServiceTitan
 
 ---
 
-## Section 3 — AI Configuration
+## 7. Notifications
 
-### Global AI Mode Default
-- Label: "Default conversation mode"
-- Segmented bar selector: Manual · Hybrid · Auto
-- Factory default for new accounts: **Hybrid**
-- Helper text: "This sets the default mode for all new conversations. You can
-  override it per-conversation in the Messages tab."
-- Note: mode is also changeable from the segmented bar at the top of the
-  Messages tab; both controls update the same global setting
+### In-app (toggles, on by default)
+- Emergency escalation (after-hours)
+- Quote request received
+- Customer flagged a call for review
+- AI failed to handle a call
 
-### Urgency Settings
-#### Warmth Score Threshold
-- Label: "Flag leads as urgent when warmth score is above:"
-- Number input or slider (default: 70)
-- Range: 0–100
-
-#### SLA Threshold
-- Label: "Flag leads as urgent if waiting longer than:" ℹ️
-  - Hover tooltip on ℹ️: "SLA (Service Level Agreement) threshold is the maximum
-    time a warm lead should wait before being flagged as urgent. Once exceeded,
-    the lead is pinned to the top of your lead list with a warning icon."
-- Input: number + unit selector (Minutes / Hours), default: 2 Hours
-- Helper text: "Only applies to leads above your warmth score threshold."
-
-### Urgency Logic Summary (read-only display)
-- Small info box showing current urgency rules at a glance:
-  "A lead is flagged urgent when 2 or more of the following are true:
-  warmth ≥ [X], responded in the last 30 min, AI detects buying signal or
-  objection, waiting > [Y hours] without a reply."
+### Other channels
+- SMS + email + push: not available at this stage. Tracked in Backlog.
 
 ---
 
-## Section 4 — Offer & Brand Voice
-
-### Business Profile
-- Business Type: editable dropdown (same options as onboarding + Other)
-- If Other: free text field for business description
-
-### Offer
-- Offer Type: editable dropdown (adapts to business type, same as onboarding)
-- If Other: free text field for offer description
-- Offer URL: optional link field
-
-### Brand Voice
-- Tone tags: multi-select (same options as onboarding, up to 3)
-- Tone description: free text field
-
-### Example DMs
-- Label: "Your example DM responses"
-- Helper text: "These help the AI match your style. You can add, edit, or remove
-  them at any time. Having none is fine if you prefer the AI's default tone."
-- List of submitted examples (each shows first 80 chars + Edit / Delete buttons)
-- "Add Example" button → opens text area to paste a new DM
-- No minimum required — section can be empty
+## 8. Team
+Placeholder. Post-MVP: invite users, assign roles
+(owner / dispatcher / tech).
 
 ---
 
-## Section 5 — Notifications
+## 9. Billing
 
-### In-App Notifications (all toggles, on by default)
-- Urgent lead flagged
-- Lead booked
-- AI flagged a message for review
+### Current plan
+- Plan name · Renewal date · "Manage Plan" button
 
-### Note
-- Email and push notifications not available at this stage
-- Future channels (email, SMS, push) tracked in Backlog
+### Usage this month
+- Minutes used / minutes included
+- Calls handled
+- Overage charges (if any)
 
----
+### Invoices
+- Downloadable PDF list
 
-## Section 6 — Billing
+### Payment method
+- Card on file · Update / Replace
 
-### Current Plan
-- Plan name (e.g., Solo, Premium, Enterprise)
-- Renewal date
-- "Manage Plan" button → upgrade/downgrade flow
-
-### Plan Tiers (display only — details TBD, see Backlog)
-| Tier       | Notes                                                      |
-|------------|------------------------------------------------------------|
-| Solo       | Entry-level, core features, limits TBD                     |
-| Premium    | Full feature access, limits TBD                            |
-| Enterprise | Custom pricing — "Book a Call" CTA, no self-serve signup   |
-
-### Enterprise CTA
-- If user clicks Enterprise: shows "Let's talk." screen with a booking link
-  to schedule a call rather than a self-serve upgrade flow
+### Cancel subscription
+- Confirmation flow — clear messaging that the number will be released
+  after the current period ends
 
 ---
 
-## Notes
-- All onboarding data is fully editable here
-- AI mode default set here flows into the segmented bar in the Messages tab
-- SLA threshold ℹ️ tooltip uses plain language — no jargon
-- Connections section built to scale: new integrations added as cards here
+## Behavior
+- Every save writes through to `agent_configs` and propagates to the Vapi
+  assistant immediately (no "publish" step).
+- Voice / greeting / system prompt addendum changes debounce ~3s before
+  pushing to Vapi, to avoid hammering the API on rapid edits.
+- All onboarding data is editable here — no field is "locked" after setup.

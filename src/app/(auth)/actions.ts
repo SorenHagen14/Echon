@@ -43,11 +43,19 @@ export async function signup(_state: AuthState, formData: FormData): Promise<Aut
   if (error) return { type: 'error', message: error.message }
 
   if (data.session && data.user) {
-    // Email confirmation is disabled — session created immediately
-    await supabase
-      .from('profiles')
-      .update({ first_name: firstName, last_name: lastName })
-      .eq('id', data.user.id)
+    // Email confirmation is disabled — session created immediately.
+    // Run both updates in parallel: profile name + skip Step 1 (Account Creation
+    // is the signup page itself — cursor starts at 2 so Business Profile is first).
+    await Promise.all([
+      supabase
+        .from('profiles')
+        .update({ first_name: firstName, last_name: lastName })
+        .eq('id', data.user.id),
+      supabase
+        .from('workspaces')
+        .update({ onboarding_step: 2 })
+        .eq('owner_id', data.user.id),
+    ])
 
     revalidatePath('/', 'layout')
     redirect('/onboarding')
