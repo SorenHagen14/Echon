@@ -4,6 +4,86 @@ All meaningful changes to the project are logged here.
 
 ---
 
+## [2026-05-01] — Pivot Phase 3: Schema reset (migration written, not yet applied)
+
+Wrote `db/migrations/004_pivot_to_voice.sql` (and the timestamped Supabase
+mirror `supabase/migrations/20260501120000_pivot_to_voice.sql`). The
+migration drops the entire DM-era schema and replaces it with the
+voice-receptionist schema in a single transaction. Pre-launch — no
+production data to preserve. **Not yet applied** to the database; apply
+with `npx supabase db push --linked`.
+
+### Dropped
+- **Tables:** `lead_magnet_deliveries`, `lead_magnets`,
+  `warmth_score_history`, `messages`, `conversations`, `leads`, `wins`,
+  `dm_examples`, `offers`, `instagram_connections`
+- **Enum types:** `business_type`, `offer_type`, `win_outcome`,
+  `referral_source`
+- **`workspaces` columns:** `referral_source`, `referral_source_other`
+- **`workspace_settings` columns:** `business_type`,
+  `business_type_other`, `tone_tags`, `tone_description`,
+  `default_ai_mode`, `urgency_warmth_threshold`, `urgency_sla_value`,
+  `urgency_sla_unit`, `notif_urgent_lead`, `notif_lead_booked`,
+  `notif_ai_review`, `avatar_description`, `avatar_demographics`,
+  `avatar_channels`, `avatar_notes`, `primary_pain`, `tried_solutions`,
+  `cost_of_inaction`, `wins_nag_dismissed`
+
+### Changed
+- `workspaces.onboarding_step` check constraint widened from `1..10` to
+  `1..12` to match the new wizard
+- `handle_new_workspace` trigger now also provisions the `agent_configs`
+  row when a workspace is created, alongside `workspace_settings`
+
+### Added
+- **Enum types:** `call_direction`, `call_outcome`, `urgency_level`,
+  `appointment_status`, `after_hours_mode`, `phone_number_status`,
+  `integration_provider`, `integration_status`
+- **`workspace_settings` columns** (HVAC notification toggles, all default
+  true): `notif_emergency_escalation`, `notif_quote_request_received`,
+  `notif_call_flagged_review`, `notif_call_failed`
+- **Tables** (all RLS-scoped to workspace via `auth_workspace_id()`):
+  - `agent_configs` (1:1 with workspace) — full voice agent config
+    mirroring onboarding Steps 3-8 + Settings → Voice agent: Vapi
+    assistant id, business identity, services, business hours,
+    after-hours mode, oncall numbers, emergency keywords, quote rules,
+    voice persona, behavior toggles, recording settings
+  - `phone_numbers` — provisioned Vapi/Twilio numbers per workspace
+    (e164 unique, status, area code, provisioned/released timestamps)
+  - `customers` — name, primary/secondary phone, email, address, notes
+    (indexed by workspace_id and primary_phone for `lookup_customer`
+    tool performance)
+  - `calls` — Vapi call id, direction, caller/callee phones, timing,
+    recording, transcript jsonb, summary, outcome, urgency, extracted
+    HVAC fields (service_address, service_requested, system_type), cost,
+    raw end-of-call payload, flag-for-review fields. Indexed by
+    workspace+started_at desc; partial indexes on processing calls and
+    customer-linked calls.
+  - `call_events` — structured trace of mid-call activity (tool
+    invocations, transfers, escalations) for the call detail UI's
+    inline highlights
+  - `appointments` — workspace, customer, call (nullable), service type,
+    scheduled_for, duration, status, gcal event id, notes
+  - `integrations` — workspace + provider unique; OAuth tokens, config
+    jsonb, status, last_error. **Note:** OAuth tokens stored plain-text
+    initially; TODO comment in migration flags pgsodium/Vault encryption
+    before the first non-test Client connects.
+
+### Pending
+- Run `npx supabase db push --linked` to apply
+- After apply: verify signup end-to-end (trigger now creates 2 rows);
+  verify `agent_configs` exists for any pre-existing test workspaces
+  (the migration does NOT backfill — see "Caveats" below)
+
+### Caveats
+- **No backfill of existing workspaces.** The trigger only fires on
+  *new* workspace inserts. Any test workspace created before this
+  migration applies will not have an `agent_configs` row. For pre-launch
+  this is fine (just delete the test user and resignup), but if real
+  pilot users exist before Phase 3 applies, run a one-shot:
+  `INSERT INTO agent_configs (workspace_id) SELECT id FROM workspaces WHERE id NOT IN (SELECT workspace_id FROM agent_configs);`
+
+---
+
 ## [2026-05-01] — Pivot Phase 2: Code deletion
 
 Removed all DM-era code from `src/`. Repo now compiles clean (`tsc --noEmit`)

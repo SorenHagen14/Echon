@@ -1,13 +1,16 @@
 # Echon — Progress Tracker
 
 ## Current Phase
-**Pivot Phase 2 complete (2026-05-01). Phase 3 (schema reset) is next.**
-Product pivoted from Instagram DM setter to AI voice receptionist for HVAC
-on 2026-05-01 (see [[DECISIONS]]). Phases 0-2 complete; Phase 3 has not
-started. Code currently compiles clean (`tsc --noEmit` passes), but the
-database still holds the pre-pivot schema (workspace_settings columns,
-offers, dm_examples, wins, referral_source). No code references those
-tables anymore — they get dropped in Phase 3.
+**Pivot Phase 3 — migration written, awaiting apply (2026-05-01).**
+Migration `004_pivot_to_voice.sql` written but NOT yet applied. Phase 3
+is not complete until the migration runs against the live Supabase
+database. Code compiles clean, but until the migration is applied the
+schema and code are out of sync (`workspace_settings` still has DM-era
+columns that no code references; new tables don't exist yet).
+
+**To apply** (when ready): `npx supabase db push --linked` from repo root.
+This is destructive (drops 10 pre-pivot tables); pre-launch is safe but
+verify no real data has accumulated first.
 
 ---
 
@@ -66,9 +69,19 @@ later phases): auth flow (`src/app/(auth)/`), middleware, Supabase clients
 (progress bar, overlay, confetti, submit button, step shell),
 `Step1Welcome.tsx`, dashboard placeholder.
 
-### Phase 3 — Schema reset (not started — NEXT UP)
-Write a single migration `004_pivot_to_voice.sql` that does the swap
-cleanly. Pre-launch, so destructive changes are safe.
+### Phase 3 — Schema reset (migration written 2026-05-01; awaiting apply)
+
+- [x] Write `db/migrations/004_pivot_to_voice.sql` and mirror to
+      `supabase/migrations/20260501120000_pivot_to_voice.sql`
+- [ ] Apply: `npx supabase db push --linked` (single transaction; rolls
+      back fully on any error)
+- [ ] Verify: signup still works end-to-end (the `handle_new_workspace`
+      trigger now provisions both `workspace_settings` and `agent_configs`
+      rows on workspace creation)
+- [ ] Verify: `select * from agent_configs limit 1;` returns one row per
+      existing test workspace
+
+What the migration does:
 
 **Drop** (from migrations 001 + 002):
 - Tables: `offers`, `dm_examples`, `wins` (+ any leads/conversations/
@@ -106,10 +119,18 @@ cleanly. Pre-launch, so destructive changes are safe.
 
 **Order of operations** (the migration runs in one transaction):
 1. Drop old tables / columns
-2. Create new tables
-3. Create indexes (workspace_id on every table; phone E164 lookup;
-   call started_at desc)
-4. Enable RLS + create policies for each table
+2. Drop old enum types (`business_type`, `offer_type`, `win_outcome`,
+   `referral_source`)
+3. Create new enum types (`call_direction`, `call_outcome`,
+   `urgency_level`, `appointment_status`, `after_hours_mode`,
+   `phone_number_status`, `integration_provider`, `integration_status`)
+4. Create new tables
+5. Create indexes (workspace_id on every table; phone E164 lookup;
+   call started_at desc; appointment scheduled_for; partial index on
+   processing calls; partial index on customer-linked calls)
+6. Enable RLS + create policies for each new table
+7. Update `handle_new_workspace` trigger to also provision the
+   `agent_configs` row alongside `workspace_settings`
 
 ### Phase 4 — Vapi integration (not started)
 **Prerequisite:** Vapi account + test number provisioned. See [[URGENT]]
