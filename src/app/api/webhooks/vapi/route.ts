@@ -52,22 +52,23 @@ export async function POST(req: Request) {
   }
 
   if (!verifySecret(secretHeader)) {
-    // Diagnostic for the still-getting-401 case. Logs header NAMES only
-    // (not values) plus a coarse fingerprint so we can spot length /
-    // character-class mismatches without leaking the secret.
     const headerNames: string[] = []
     req.headers.forEach((_v, k) => headerNames.push(k))
     const expected = process.env.VAPI_WEBHOOK_SECRET ?? ''
-    console.warn('[vapi-webhook] 401 unauthorized', {
+    const diagnostic = {
+      reason: 'unauthorized',
       headerNames,
       envSet: expected.length > 0,
       envLen: expected.length,
       receivedHeaderLen: secretHeader?.length ?? 0,
-      // First 3 chars of each, for an at-a-glance "is this even close" check
       envPrefix: expected.slice(0, 3),
       receivedPrefix: secretHeader?.slice(0, 3) ?? null,
-    })
-    return new NextResponse('Unauthorized', { status: 401 })
+    }
+    console.error('[vapi-webhook] 401 unauthorized', diagnostic)
+    // Diagnostic embedded in the body so it surfaces even if the Vercel
+    // log filter hides console output. Drop this branch once the secret
+    // mismatch is resolved — fail closed.
+    return NextResponse.json(diagnostic, { status: 401 })
   }
 
   let payload: VapiPayload
