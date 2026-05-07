@@ -35,6 +35,7 @@ export interface AssistantConfig {
 
   // Voice persona advanced controls — surfaced in Settings → Receptionist
   // → Voice & persona.
+  speakingRate?: 'slow' | 'normal' | 'fast'
   modelTier?: 'fast' | 'balanced' | 'best'   // maps to a specific Anthropic model
   temperature?: number                        // 0..1
   maxTokens?: number                          // per-turn output cap
@@ -43,6 +44,11 @@ export interface AssistantConfig {
   backchannelingEnabled?: boolean
   // When set + non-empty, overrides the auto-generated system prompt.
   customSystemPrompt?: string | null
+
+  // Trade context for the auto-generated prompt. Pulled from
+  // `workspaces.business_type` / `business_type_other`.
+  businessType?: string | null
+  businessTypeOther?: string | null
 }
 
 export interface AvailableNumber {

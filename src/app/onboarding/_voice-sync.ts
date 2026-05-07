@@ -31,11 +31,11 @@ export async function syncVapiAssistant(supabase: Supa, workspaceId: string): Pr
     return
   }
 
-  const { data: cfg, error } = await supabase
-    .from('agent_configs')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .single()
+  const [cfgRes, wsRes] = await Promise.all([
+    supabase.from('agent_configs').select('*').eq('workspace_id', workspaceId).single(),
+    supabase.from('workspaces').select('business_type, business_type_other').eq('id', workspaceId).single(),
+  ])
+  const { data: cfg, error } = cfgRes
 
   if (error || !cfg) {
     console.warn('[voice-sync] no agent_configs row for workspace', workspaceId, error)
@@ -47,7 +47,7 @@ export async function syncVapiAssistant(supabase: Supa, workspaceId: string): Pr
     return
   }
 
-  const config = buildAssistantConfig(cfg)
+  const config = buildAssistantConfig(cfg, wsRes.data ?? null)
 
   try {
     if (cfg.vapi_assistant_id) {
@@ -68,7 +68,10 @@ export async function syncVapiAssistant(supabase: Supa, workspaceId: string): Pr
   }
 }
 
-export function buildAssistantConfig(cfg: Record<string, unknown>): AssistantConfig {
+export function buildAssistantConfig(
+  cfg: Record<string, unknown>,
+  workspace: { business_type?: string | null; business_type_other?: string | null } | null = null,
+): AssistantConfig {
   const businessName = String(cfg.business_name ?? 'our shop')
   const agentName = String(cfg.agent_name ?? 'John')
   const tone = (cfg.tone as Tone | null) ?? 'professional'
@@ -122,6 +125,7 @@ export function buildAssistantConfig(cfg: Record<string, unknown>): AssistantCon
     },
     recordingEnabled: Boolean(cfg.recording_enabled ?? true),
 
+    speakingRate: (cfg.speaking_rate as 'slow' | 'normal' | 'fast' | null) ?? 'normal',
     modelTier: (cfg.model_tier as 'fast' | 'balanced' | 'best' | null) ?? 'balanced',
     temperature: typeof cfg.temperature === 'number' ? Number(cfg.temperature)
       : cfg.temperature != null ? Number(cfg.temperature) : 0.7,
@@ -136,5 +140,7 @@ export function buildAssistantConfig(cfg: Record<string, unknown>): AssistantCon
       cfg.use_custom_system_prompt && typeof cfg.custom_system_prompt === 'string'
         ? cfg.custom_system_prompt
         : null,
+    businessType: workspace?.business_type ?? null,
+    businessTypeOther: workspace?.business_type_other ?? null,
   }
 }

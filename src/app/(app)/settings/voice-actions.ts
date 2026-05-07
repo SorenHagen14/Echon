@@ -20,8 +20,6 @@ async function requireWorkspace() {
 
 const TONES = ['friendly', 'professional', 'direct'] as const
 const SPEAKING_RATES = ['slow', 'normal', 'fast'] as const
-const MODEL_TIERS = ['fast', 'balanced', 'best'] as const
-
 function pickEnum<T extends readonly string[]>(values: T, raw: FormDataEntryValue | null): T[number] | null {
   if (typeof raw !== 'string') return null
   return (values as readonly string[]).includes(raw) ? (raw as T[number]) : null
@@ -74,7 +72,8 @@ export async function updateVoicePersona(formData: FormData): Promise<void> {
     speaking_rate: pickEnum(SPEAKING_RATES, formData.get('speaking_rate')) ?? 'normal',
     recording_enabled: formData.get('recording_enabled') === 'true',
 
-    model_tier: pickEnum(MODEL_TIERS, formData.get('model_tier')) ?? 'balanced',
+    // model_tier is intentionally NOT updated here — picker is hidden and
+    // everyone runs on Haiku ('fast'). Re-introduce when tier-gating lands.
     temperature: clampNumber(formData.get('temperature'), 0, 1, 0.7),
     max_tokens: Math.round(clampNumber(formData.get('max_tokens'), 50, 1000, 250)),
     end_call_phrases: parseEndCallPhrases(formData.get('end_call_phrases')),

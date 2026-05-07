@@ -113,21 +113,17 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
       {showAdvanced && (
         <>
           {/* ---- MODEL ---------------------------------------------------- */}
+          {/* Model picker is hidden on every plan today — Haiku for everyone.
+              Higher tiers (Sonnet, Opus) will reappear here gated behind a
+              subscription tier. See BACKLOG: subscription-tier gating. */}
           <FormCard>
-            <CardTitle>Model</CardTitle>
+            <CardTitle>Model tuning</CardTitle>
+            <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+              Your AI runs on the Fast model (Haiku) — efficient and cheap to operate.
+              Higher-quality models will be available on upgraded plans.
+            </p>
 
-            <Field label="Quality / cost">
-              <select name="model_tier" defaultValue={config.model_tier} className={inputCls}>
-                <option value="fast">Fast (Haiku) — cheapest, fastest</option>
-                <option value="balanced">Balanced (Sonnet) — recommended</option>
-                <option value="best">Best (Opus) — slowest, most accurate</option>
-              </select>
-            </Field>
-
-            <Field
-              label="Temperature"
-              hint="0 = predictable, 1 = creative. Default 0.7."
-            >
+            <Field label="Temperature" hint="0 = predictable, 1 = creative. Default 0.7.">
               <input
                 type="number"
                 name="temperature"

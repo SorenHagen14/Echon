@@ -125,11 +125,11 @@ async function renderSection(
 
     // ---- Receptionist ----------------------------------------------------
     case 'voice': {
-      const { data: cfg } = await supabase
-        .from('agent_configs')
-        .select('*')
-        .eq('workspace_id', workspaceId)
-        .single()
+      const [cfgRes, wsRes] = await Promise.all([
+        supabase.from('agent_configs').select('*').eq('workspace_id', workspaceId).single(),
+        supabase.from('workspaces').select('business_type, business_type_other').eq('id', workspaceId).single(),
+      ])
+      const cfg = cfgRes.data
       if (!cfg) {
         return (
           <Placeholder>
@@ -139,7 +139,7 @@ async function renderSection(
       }
       const { buildAssistantConfig } = await import('@/app/onboarding/_voice-sync')
       const { buildSystemPrompt } = await import('@/lib/voice')
-      const generatedPreview = buildSystemPrompt(buildAssistantConfig(cfg))
+      const generatedPreview = buildSystemPrompt(buildAssistantConfig(cfg, wsRes.data ?? null))
       const { VoicePersonaSection } = await import('../_components/VoicePersonaSection')
       return (
         <VoicePersonaSection
