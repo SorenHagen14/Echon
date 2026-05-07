@@ -68,7 +68,7 @@ export async function syncVapiAssistant(supabase: Supa, workspaceId: string): Pr
   }
 }
 
-function buildAssistantConfig(cfg: Record<string, unknown>): AssistantConfig {
+export function buildAssistantConfig(cfg: Record<string, unknown>): AssistantConfig {
   const businessName = String(cfg.business_name ?? 'our shop')
   const agentName = String(cfg.agent_name ?? 'John')
   const tone = (cfg.tone as Tone | null) ?? 'professional'
@@ -121,5 +121,20 @@ function buildAssistantConfig(cfg: Record<string, unknown>): AssistantConfig {
       customRules: (cfg.quote_rule_custom as string | null) ?? null,
     },
     recordingEnabled: Boolean(cfg.recording_enabled ?? true),
+
+    modelTier: (cfg.model_tier as 'fast' | 'balanced' | 'best' | null) ?? 'balanced',
+    temperature: typeof cfg.temperature === 'number' ? Number(cfg.temperature)
+      : cfg.temperature != null ? Number(cfg.temperature) : 0.7,
+    maxTokens: typeof cfg.max_tokens === 'number' ? cfg.max_tokens : 250,
+    endCallPhrases: Array.isArray(cfg.end_call_phrases)
+      ? (cfg.end_call_phrases as string[]).filter((s) => typeof s === 'string')
+      : undefined,
+    interruptionThresholdSec: cfg.interruption_threshold_sec != null
+      ? Number(cfg.interruption_threshold_sec) : 0.5,
+    backchannelingEnabled: Boolean(cfg.backchanneling_enabled ?? true),
+    customSystemPrompt:
+      cfg.use_custom_system_prompt && typeof cfg.custom_system_prompt === 'string'
+        ? cfg.custom_system_prompt
+        : null,
   }
 }

@@ -46,7 +46,7 @@ const VOICE_PRESET_MAP: Record<string, { provider: string; voiceId: string }> = 
   emma: { provider: 'openai', voiceId: 'shimmer' },
 }
 
-function buildSystemPrompt(config: AssistantConfig): string {
+export function buildSystemPrompt(config: AssistantConfig): string {
   const services = config.services
     .map((s) => `- ${s.name}${s.bookDirectly ? ' (bookable)' : ' (quote only)'}${s.pricingNote ? ` — ${s.pricingNote}` : ''}`)
     .join('\n')
@@ -73,19 +73,48 @@ function buildSystemPrompt(config: AssistantConfig): string {
     .join('\n')
 }
 
+// Quality labels surfaced to the owner map to specific Anthropic models here.
+// Keeping this table local to the Vapi adapter so the rest of the app stays
+// model-agnostic.
+const MODEL_BY_TIER: Record<'fast' | 'balanced' | 'best', string> = {
+  fast: 'claude-haiku-4-5-20251001',
+  balanced: 'claude-sonnet-4-6',
+  best: 'claude-opus-4-7',
+}
+
 function buildVapiPayload(config: AssistantConfig) {
   const voice = VOICE_PRESET_MAP[config.voicePreset] ?? VOICE_PRESET_MAP.john
-  return {
+  const tier = config.modelTier ?? 'balanced'
+  const systemPrompt =
+    config.customSystemPrompt && config.customSystemPrompt.trim()
+      ? config.customSystemPrompt
+      : buildSystemPrompt(config)
+
+  const model: Record<string, unknown> = {
+    provider: 'anthropic',
+    model: MODEL_BY_TIER[tier],
+    messages: [{ role: 'system', content: systemPrompt }],
+  }
+  if (typeof config.temperature === 'number') model.temperature = config.temperature
+  if (typeof config.maxTokens === 'number') model.maxTokens = config.maxTokens
+
+  const payload: Record<string, unknown> = {
     name: `${config.businessName} — ${config.agentName}`,
-    model: {
-      provider: 'anthropic',
-      model: 'claude-sonnet-4-6',
-      messages: [{ role: 'system', content: buildSystemPrompt(config) }],
-    },
+    model,
     voice: { provider: voice.provider, voiceId: voice.voiceId },
     firstMessage: config.greeting,
     recordingEnabled: config.recordingEnabled,
   }
+  if (config.endCallPhrases && config.endCallPhrases.length > 0) {
+    payload.endCallPhrases = config.endCallPhrases
+  }
+  if (typeof config.interruptionThresholdSec === 'number') {
+    payload.interruptionThreshold = config.interruptionThresholdSec
+  }
+  if (typeof config.backchannelingEnabled === 'boolean') {
+    payload.backchannelingEnabled = config.backchannelingEnabled
+  }
+  return payload
 }
 
 export const vapiProvider: VoiceProvider = {

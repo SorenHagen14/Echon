@@ -124,8 +124,49 @@ async function renderSection(
     }
 
     // ---- Receptionist ----------------------------------------------------
-    case 'voice':
-      return <Placeholder>Mirrors onboarding Step 9 — agent name, voice, tone, greeting, system-prompt addendum, recording toggle.</Placeholder>
+    case 'voice': {
+      const { data: cfg } = await supabase
+        .from('agent_configs')
+        .select('*')
+        .eq('workspace_id', workspaceId)
+        .single()
+      if (!cfg) {
+        return (
+          <Placeholder>
+            Voice agent isn&apos;t provisioned yet. Finish onboarding first.
+          </Placeholder>
+        )
+      }
+      const { buildAssistantConfig } = await import('@/app/onboarding/_voice-sync')
+      const { buildSystemPrompt } = await import('@/lib/voice')
+      const generatedPreview = buildSystemPrompt(buildAssistantConfig(cfg))
+      const { VoicePersonaSection } = await import('../_components/VoicePersonaSection')
+      return (
+        <VoicePersonaSection
+          config={{
+            agent_name: (cfg.agent_name as string | null) ?? null,
+            greeting: (cfg.greeting as string | null) ?? null,
+            tone: ((cfg.tone as string | null) ?? 'friendly') as 'friendly' | 'professional' | 'direct',
+            speaking_rate: ((cfg.speaking_rate as string | null) ?? 'normal') as 'slow' | 'normal' | 'fast',
+            recording_enabled: Boolean(cfg.recording_enabled ?? true),
+            use_custom_system_prompt: Boolean(cfg.use_custom_system_prompt),
+            custom_system_prompt: (cfg.custom_system_prompt as string | null) ?? null,
+            previous_custom_system_prompt: (cfg.previous_custom_system_prompt as string | null) ?? null,
+            generated_system_prompt_preview: generatedPreview,
+            model_tier: ((cfg.model_tier as string | null) ?? 'balanced') as 'fast' | 'balanced' | 'best',
+            temperature: Number(cfg.temperature ?? 0.7),
+            max_tokens: Number(cfg.max_tokens ?? 250),
+            end_call_phrases: Array.isArray(cfg.end_call_phrases)
+              ? (cfg.end_call_phrases as string[])
+              : ['goodbye', 'bye'],
+            interruption_threshold_sec: Number(cfg.interruption_threshold_sec ?? 0.5),
+            backchanneling_enabled: Boolean(cfg.backchanneling_enabled ?? true),
+            max_call_duration_sec: Number(cfg.max_call_duration_sec ?? 480),
+            silence_timeout_sec: Number(cfg.silence_timeout_sec ?? 5),
+          }}
+        />
+      )
+    }
 
     case 'after-hours':
       return <Placeholder>What the AI does outside business hours: take a message, escalate to on-call, or live-transfer.</Placeholder>

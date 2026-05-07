@@ -11,6 +11,14 @@ Before doing anything, read these files in order:
 6. `_project/WORKFLOWS.md` — step-by-step user journeys the system must support
 7. `docs/CHANGELOG.md` — history of all meaningful changes
 
+## Read When Talking Sales / Pitch / Marketing
+If the user's question is about positioning, outreach, pitching to a
+potential customer, vertical expansion, pricing ideas, or anything sales
+or marketing flavored, read `_project/GROWTH.md` first. It holds warm
+leads, the core pitch, vertical shortlist, and positioning notes. Update
+it when new ideas, leads, or angles come up — that file is the home for
+all sales/marketing thinking.
+
 ## Read When Building UI
 Before writing any frontend code, read the relevant wireframe in `_wireframes/`:
 - `dashboard.md` — main dashboard

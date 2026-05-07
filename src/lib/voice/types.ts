@@ -32,6 +32,17 @@ export interface AssistantConfig {
     customRules?: string | null
   }
   recordingEnabled: boolean
+
+  // Voice persona advanced controls — surfaced in Settings → Receptionist
+  // → Voice & persona.
+  modelTier?: 'fast' | 'balanced' | 'best'   // maps to a specific Anthropic model
+  temperature?: number                        // 0..1
+  maxTokens?: number                          // per-turn output cap
+  endCallPhrases?: string[]
+  interruptionThresholdSec?: number           // 0.1..3.0
+  backchannelingEnabled?: boolean
+  // When set + non-empty, overrides the auto-generated system prompt.
+  customSystemPrompt?: string | null
 }
 
 export interface AvailableNumber {
