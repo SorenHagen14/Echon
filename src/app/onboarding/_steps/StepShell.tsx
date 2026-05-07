@@ -20,12 +20,20 @@ export function StepShell({ state, children }: Props) {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
-    if (state?.ok) {
-      nextStepRef.current = state.nextStep
-      setMessage(state.message)
-      setVisible(true)
+    if (!state?.ok) return
+
+    // Skip the overlay entirely when the step has no microcopy (Step 1 —
+    // the page itself is already the welcome; a second "Welcome aboard."
+    // overlay would be redundant). Navigate immediately.
+    if (!state.message) {
+      router.push(`/onboarding/${state.nextStep}`)
+      return
     }
-  }, [state])
+
+    nextStepRef.current = state.nextStep
+    setMessage(state.message)
+    setVisible(true)
+  }, [state, router])
 
   function handleDismiss() {
     setVisible(false)

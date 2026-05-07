@@ -1,16 +1,94 @@
 # Echon — Progress Tracker
 
 ## Current Phase
-**Pivot Phase 3 — migration written, awaiting apply (2026-05-01).**
-Migration `004_pivot_to_voice.sql` written but NOT yet applied. Phase 3
-is not complete until the migration runs against the live Supabase
-database. Code compiles clean, but until the migration is applied the
-schema and code are out of sync (`workspace_settings` still has DM-era
-columns that no code references; new tables don't exist yet).
+**Phase 6 — Dashboard + Cases MVP, foundation tight as of 2026-05-07.**
 
-**To apply** (when ready): `npx supabase db push --linked` from repo root.
-This is destructive (drops 10 pre-pivot tables); pre-launch is safe but
-verify no real data has accumulated first.
+The "client app" surface has substantially shipped. Top nav order is now
+**Dashboard · Cases · Calls · Customers · Schedule · Settings**. Phase 4
+(Vapi webhook DB writes + Inngest post-call job) is still explicitly
+held until pilot intake — the local data model is solid enough that
+flipping to live Vapi data is now mostly a webhook-handler exercise.
+
+**Where we are (2026-05-07):**
+
+- **`/schedule` shipped end-to-end (2026-05-07).** Google-Calendar-style
+  week grid, RLS-scoped, sourced from the case → technician relationship.
+  Pill-row operator filter (`All` default, plus `Unassigned`). Prev /
+  Today / Next via `?week=`. Day · Week · Month switcher with only Week
+  active. Block click opens the case in a modal (`?case=<id>`). New
+  in-page Settings tab + Settings → Schedule both write the same row
+  (`workspace_settings.week_start`, `schedule_time_range`).
+
+- **Cases concept shipped end-to-end.** A "case" is one issue for one
+  customer that can span multiple calls and appointments. Each case has
+  three nullable role slots: `cs_rep_id`, `technician_id`,
+  `manager_id`. New routes: `/cases` (list, defaults to Open) and
+  `/cases/[id]` (detail). Auto-assign uses deterministic logic
+  (eligibility flags + scheduling-conflict check + per-role priority
+  1–10). Confirmation dialog. Per-case **Recommended action** now lives
+  on the case (not per call) — Haiku call aggregates every call's
+  transcript + summary into one operator briefing. Merge-cases dialog
+  for fixing AI mis-grouping.
+- **Modal pattern consolidated.** Customers AND calls open in
+  URL-driven modals (`?customer=<id>`, `?call=<id>`). Standalone pages
+  exist for direct links and refresh; both render a shared body so the
+  modal and page can never drift. CustomerLink + CallLink each clear
+  the other's param so only one modal is open at a time. Modals
+  mounted once in `(app)/layout`. Wide rollout — every "click a call"
+  or "click a customer name" anywhere goes through the modal.
+- **`(app)/` route group** holds every authed surface
+  (`dashboard/`, `cases/`, `calls/`, `customers/`, `settings/`) under
+  one shared layout (auth gate + TopNav + both modals).
+- **Settings → Team** with eligibility checkboxes (Customer service /
+  Technician / Manager), per-role priority 1–10 (default 5, only shown
+  for checked roles), color picker. Free-text Role field was removed
+  — eligibility flags are the single source of role information; the
+  team list shows pills derived from them. The DB column
+  `operators.role` still exists but is unused (left for now; harmless).
+- **Customer profile modal** — full profile (notes, equipment,
+  history) rendered as an overlay everywhere a customer name is
+  clicked. Standalone `/customers/[id]` stays for direct links.
+- **Call detail body** — transcript, summary, extracted fields,
+  flag-for-review, recording slot. Recommended action is gone from
+  this body (moved to case level). View-case link in the header meta
+  row when the call belongs to a case.
+
+**Migrations applied to Supabase:** 001–012. **013 pending apply.**
+- 010: operators table
+- 011: cases table + `calls.case_id`/`appointments.case_id`,
+  drops `appointments.assigned_operator_id`, adds operator
+  eligibility booleans + per-role priorities
+- 012: `cases.recommended_action` + backfill, drops
+  `calls.recommended_action`
+- 013 (pending): `workspace_settings.week_start` + `schedule_time_range`
+  for the /schedule calendar preferences
+
+**Next session (recommended order):**
+
+1. **Phase 4 webhook DB writes + Inngest post-call job** — the data
+   model is now ready. Webhook receiver exists at
+   `src/app/api/webhooks/vapi/route.ts` but currently only verifies
+   signatures and skips DB writes. Needs:
+   - Upsert `calls` row on `status-update` events (call `ensureCaseForCall` after insert)
+   - Insert `call_events` rows for transitions
+   - Inngest job triggered by `end-of-call-report`: Anthropic Sonnet
+     extracts structured fields from transcript, updates `customers`,
+     writes `calls.summary` + `outcome`, links the appointment if
+     booked, fires after-hours notifications.
+2. **Voice tool handlers** — `src/app/api/voice/tools/` for
+   `lookup_customer` / `check_availability` / `book_appointment` /
+   `escalate_to_human` / `transfer_call`.
+
+**Still parked (see BACKLOG):**
+- Step 10 Google Calendar OAuth (GCP verification blocked — see URGENT.md)
+- Step 11 number-provisioning polish (area-code coverage + geocoding)
+- Concierge call scheduler embed
+- Notify operators on case assignment (email + SMS) — needs SMTP + SMS
+- Role-based workspace access (Manager / CSR / Tech invites)
+- Theme switcher in Settings → Appearance
+- Realtime dashboard updates
+- Subscription tiers + gating "Recommended action"
+- Beta-test outreach — car detailing buddy
 
 ---
 
@@ -69,17 +147,21 @@ later phases): auth flow (`src/app/(auth)/`), middleware, Supabase clients
 (progress bar, overlay, confetti, submit button, step shell),
 `Step1Welcome.tsx`, dashboard placeholder.
 
-### Phase 3 — Schema reset (migration written 2026-05-01; awaiting apply)
+### Phase 3 — Schema reset ✅ (applied 2026-05-04)
 
 - [x] Write `db/migrations/004_pivot_to_voice.sql` and mirror to
       `supabase/migrations/20260501120000_pivot_to_voice.sql`
-- [ ] Apply: `npx supabase db push --linked` (single transaction; rolls
-      back fully on any error)
-- [ ] Verify: signup still works end-to-end (the `handle_new_workspace`
-      trigger now provisions both `workspace_settings` and `agent_configs`
-      rows on workspace creation)
-- [ ] Verify: `select * from agent_configs limit 1;` returns one row per
-      existing test workspace
+- [x] Apply: `npx supabase db push` (single transaction; rolled back
+      cleanly when constraint violations surfaced during the
+      onboarding-v2 work)
+- [x] Verify: signup → onboarding flow works end-to-end with the new
+      schema (the `handle_new_workspace` trigger provisions both
+      `workspace_settings` and `agent_configs`)
+- [x] Follow-on migrations applied today:
+  - 005 (`onboarding_v2.sql`) — Step 9 sub-flow columns + per-vertical
+    catalog support + phone_numbers source enum
+  - 006 (`add_business_type.sql`) — recreated business_type enum +
+    columns; widened onboarding_step to 1..12
 
 What the migration does:
 
@@ -132,70 +214,137 @@ What the migration does:
 7. Update `handle_new_workspace` trigger to also provision the
    `agent_configs` row alongside `workspace_settings`
 
-### Phase 4 — Vapi integration (not started)
-**Prerequisite:** Vapi account + test number provisioned. See [[URGENT]]
-— this becomes a hard blocker the moment Phase 4 starts.
+### Phase 4 — Vapi integration (onboarding portion ✅ 2026-05-04)
 
-- [ ] `src/lib/voice/` — `VoiceProvider` interface + Vapi adapter. App
-      code never imports the Vapi SDK directly; goes through this layer.
-- [ ] `src/app/api/webhooks/vapi/route.ts` — call lifecycle webhook
-      (status updates + end-of-call reports)
-- [ ] `src/app/api/voice/tools/` — function-call handlers invoked
-      mid-call by the agent:
+Done — onboarding-blocking surface:
+- [x] `src/lib/voice/` — `VoiceProvider` interface + Vapi adapter via REST.
+      App code imports `voice` from `@/lib/voice` only.
+- [x] `src/app/api/webhooks/vapi/route.ts` — webhook receiver with
+      timing-safe header verification (`x-vapi-secret`). Routes
+      `status-update`, `end-of-call-report`, `tool-calls`. Test calls
+      flagged via `metadata.test=true` skip DB writes.
+- [x] Onboarding Steps 4-8 + Step 9 sub-steps 1-3 sync the assistant to
+      Vapi on save (`src/app/onboarding/_voice-sync.ts`). Soft-fails
+      logged but don't block the wizard. Defensive `agent_configs` upsert
+      in `saveAndAdvance` covers workspaces without trigger-provisioned
+      rows.
+- [x] Step 9 sub-step 4 in-browser test call via `@vapi-ai/web` — live
+      WebRTC, transcript, confetti on end. (`_components/TestCallButton.tsx`)
+- [x] Step 11 number provisioning — single-button "Get my number" claims
+      a Vapi-managed Twilio number in the requested area code, attaches
+      it to the assistant, inserts `phone_numbers` row. Surfaces Vapi's
+      area-code hint on rejection.
+- [x] Dev-only "Skip to dashboard" button in onboarding layout (TEST_MODE
+      gated) for fast iteration.
+
+Still to land (non-blocking for Phase 6 dashboard work):
+- [ ] `src/app/api/voice/tools/` — function-call handlers invoked mid-call:
   - `lookup_customer` — phone lookup, returns existing record or null
   - `check_availability` — calendar availability for a date range
   - `book_appointment` — creates appointment + GCal event
   - `escalate_to_human` — fires SMS/push to on-call; returns ack
   - `transfer_call` — Vapi live transfer to on-call number
+- [x] Webhook DB writes (2026-05-07): upserts `calls` row on
+      `status-update` (workspace resolved via `phone_numbers.e164_number
+      = callee_phone`, customer linked via `customers.primary_phone`),
+      inserts `call_events` per event, attaches the call to a case via a
+      service-role variant of `ensureCaseForCall`. `end-of-call-report`
+      writes `ended_at`, `duration_sec`, `recording_url`, `transcript`,
+      `cost_cents`, and the raw payload. Outcome stays at `processing`
+      until the Inngest summarization job lands. Service-role client at
+      `src/lib/supabase/service.ts`; env var
+      `SUPABASE_SERVICE_ROLE_KEY` required.
 - [ ] Inngest job: post-call processing
   - Anthropic Sonnet extracts structured fields from transcript
   - Updates `customers`, writes `calls.summary` + `outcome`, links
     appointment if booked
   - Fires notifications (after-hours alerts, escalation acks)
+- [ ] Number provisioning polish (BACKLOG): geocode `business_address`
+      to default area code; decide Vapi-managed vs BYO Twilio for full
+      area-code coverage
 
-### Phase 5 — HVAC-shaped onboarding (not started)
-Rewrite wizard per `_wireframes/onboarding.md` (12 steps).
+### Phase 5 — Onboarding v2 ✅ substantially complete (2026-05-04)
 
-- [ ] Build the 11 new step forms (Step 2 = account creation; Steps 3-11
-      land in `src/app/onboarding/_steps/`)
-  - Step 2: Account creation (email/password + Google OAuth)
-  - Step 3: Business info (name, phone, service area, address)
-  - Step 4: Services offered (multi-select with book-direct toggle +
-    pricing note per service)
-  - Step 5: Business hours (day × hours grid + timezone)
-  - Step 6: After-hours behavior (3-option radio + on-call numbers)
-  - Step 7: Quote rules (toggles + free-text custom rules)
-  - Step 8: Voice agent persona (name, voice, tone, greeting + preview)
-  - Step 9: Calendar connect (Google OAuth — skippable)
-  - Step 10: Number provisioning (claim a Vapi/Twilio number)
-  - Step 11: Test call (live wait + transcript + outcome)
-  - Step 12: All set (status checklist + finale)
-- [ ] Populate `saveAndAdvance` in `actions.ts` with per-step Zod schemas +
-      writes to `agent_configs` (and `phone_numbers` for Step 10,
-      `integrations` for Step 9)
-- [ ] Steps 3-8: every save also propagates relevant fields to the Vapi
-      assistant (debounced ~3s if from Settings; immediate from onboarding)
-- [ ] Step 11 test-call: server-rendered live status using Supabase
-      realtime on the `calls` table
-- [ ] Update `[step]/page.tsx` to render real forms instead of the Phase 2
-      placeholder
+Wizard rewritten end-to-end. Account creation moved OUT of the wizard
+(`/signup` is its own page). Per-vertical service catalogs added so the
+flow is usable for any service business (narrow-then-wide). New flow:
 
-### Phase 6 — Dashboard MVP (not started)
+1. Welcome (7-min copy)
+2. Where did you hear about us? *(new — referral source)*
+3. What kind of business? *(new — narrow-then-wide infrastructure)*
+4. Business info
+5. Services offered *(per-vertical catalog driven by Step 3)*
+6. Business hours *(timezone dropdown)*
+7. After-hours *(messages-only / escalate)*
+8. Quote rules
+9. Build your agent *(sub-flow with side panel + Phase 4 test placeholder)*
+10. Calendar connect *(Phase 4 placeholder)*
+11. Number provisioning *(Phase 4 placeholder)*
+12. You're all set *("Go answer every call.")*
+
+Done:
+- [x] Migrations 005 + 006 applied (Step 9 sub-flow columns, business_type
+      enum, phone_numbers source enum)
+- [x] All 12 step components built and wired
+- [x] `saveAndAdvance` populated with per-step Zod schemas + writes to
+      `workspaces` (Steps 2, 3) and `agent_configs` (Steps 4-8)
+- [x] `saveAgentBuilderSubStep` action for the Step 9 sub-flow with
+      `builder_substep` resume tracking
+- [x] Test mode (`NODE_ENV !== 'production'`) loosens required-field
+      validation in dev with a banner
+- [x] Back navigation between steps + between sub-steps in Step 9
+- [x] Wireframe `_wireframes/onboarding.md` rewritten for v2
+
+Phase-4-blocked (placeholders shipped, real integration deferred):
+- [ ] Step 9 sub-step 4: in-browser WebRTC test call (needs Vapi)
+- [ ] Step 10: real Google OAuth + calendar picker (needs GCP + verified
+      consent screen)
+- [ ] Step 11: real Vapi number-buying + Calendly-style scheduler embed
+- [ ] Steps 4-8 propagating to a Vapi assistant on save (needs Vapi)
+
+### Phase 6 — Dashboard MVP (in progress 2026-05-04)
 Wireframes in `_wireframes/`: `dashboard.md`, `call_log.md`,
 `call_detail.md`, `voice_agent_config.md`, `settings.md`.
 
-- [ ] `/dashboard` — 4-tile snapshot, needs-attention list, upcoming
-      appointments, recent calls (Supabase realtime updates)
-- [ ] `/calls` — sortable filterable call log with outcome badges + search
-- [ ] `/calls/[id]` — call detail: transcript with tool-call highlights,
-      extracted fields panel (editable), recording player, action buttons
-      (Edit fields / Flag for review / Call back)
-- [ ] `/schedule` — calendar/list view of upcoming appointments + linked
-      customer/call records
-- [ ] `/settings` — 9 sections per `_wireframes/settings.md`: Account,
+Done:
+- [x] Top nav component (`Dashboard · Calls · Schedule · Settings`,
+      centered) — `src/app/_components/TopNav.tsx`
+- [x] Auth-gated dashboard layout — `src/app/dashboard/layout.tsx`
+      (redirects unauthed → `/login`, unfinished-onboarding → wizard)
+- [x] Theme provider (`next-themes`, default = system) at root
+- [x] Sign-out action
+- [x] `/dashboard` Section 4 — Recent calls (last 10, server-rendered
+      with customer joins, outcome badges, empty state)
+- [x] TEST_MODE seeder (`seedFakeCalls` / `clearFakeCalls`) — 10 mixed
+      calls + 3 customers, tagged for safe cleanup
+- [x] Functional Refresh button on dashboard
+
+To do:
+- [x] `/dashboard` Section 1 — Metrics tiles (calls handled / appointments
+      booked / new customers) with sparkline + conversion bars + ratio
+      bars + delta badges, window picker dropdown — 2026-05-05
+- [x] `/dashboard` Section 3 — Upcoming appointments (today + tomorrow,
+      grouped headers, max 8) — 2026-05-05
+- [x] `/dashboard` Section 2 — Needs attention list (flagged > escalated >
+      repeat caller > quote-requested, deduped by phone, max 5) — 2026-05-05
+- [x] `/dashboard` Needs attention — per-row "Resolved" button to dismiss
+      hallucinated/already-handled items (call stays in Recent Calls + detail);
+      resolves all calls from same caller_phone in 14d window — 2026-05-05
+- [x] `/calls/[id]` — call detail: header + 2-col body, summary
+      bullets, extracted fields table, linked appointment, flag-for-review
+      action. Transcript + recording slots ship as empty states until
+      Phase 4 webhooks populate them (2026-05-05)
+- [x] `/calls` — basic table view (last 50, newest first, all wireframe
+      columns) shipped 2026-05-05. Filters / search / CSV export still TODO
+- [x] `/schedule` — Google-Calendar-style week view, operator pill filter,
+      week nav, case-modal-on-block-click, in-page Settings tab synced
+      with Settings → Schedule (2026-05-07)
+- [ ] `/settings` — 9 sections per `_wireframes/settings.md` (Account,
       Voice agent, Business hours, Services & pricing, After-hours &
-      escalation, Integrations, Notifications, Team (placeholder), Billing
-- [ ] Top nav component: `Dashboard · Calls · Schedule · Settings`
+      escalation, Integrations, Notifications, Team, Billing) +
+      Theme/Appearance picker
+- [ ] When 2nd authed route lands: lift `dashboard/layout.tsx` auth gate
+      into a route group `(app)/` so all four routes share it
 - [ ] Verified: real test call from a pilot HVAC shop produces the right
       data on every screen
 

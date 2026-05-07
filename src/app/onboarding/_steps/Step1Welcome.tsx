@@ -14,11 +14,19 @@ export function Step1Welcome({ firstName }: Props) {
     <StepShell state={state}>
       <div className="mb-8">
         <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-white">
-          Welcome{firstName ? `, ${firstName}` : ''}!
+          Welcome aboard{firstName ? `, ${firstName}` : ''}.
         </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Your account is created. Let&apos;s set up your AI so it sounds exactly like you — it only takes a few minutes.
+        <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-300">
+          We&apos;ll get your AI receptionist live in about <strong>7 minutes</strong>.
         </p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          Here&apos;s what you&apos;ll need:
+        </p>
+        <ul className="mt-2 list-disc pl-5 text-sm text-zinc-500 dark:text-zinc-400">
+          <li>Your business hours</li>
+          <li>The services you offer</li>
+          <li>A Google account (optional, for calendar booking)</li>
+        </ul>
       </div>
 
       {state && !state.ok && state.errors._ && (

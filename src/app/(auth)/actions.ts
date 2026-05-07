@@ -44,18 +44,13 @@ export async function signup(_state: AuthState, formData: FormData): Promise<Aut
 
   if (data.session && data.user) {
     // Email confirmation is disabled — session created immediately.
-    // Run both updates in parallel: profile name + skip Step 1 (Account Creation
-    // is the signup page itself — cursor starts at 2 so Business Profile is first).
-    await Promise.all([
-      supabase
-        .from('profiles')
-        .update({ first_name: firstName, last_name: lastName })
-        .eq('id', data.user.id),
-      supabase
-        .from('workspaces')
-        .update({ onboarding_step: 2 })
-        .eq('owner_id', data.user.id),
-    ])
+    // Onboarding v2: signup lives outside the wizard. New users land at
+    // Step 1 (Welcome). The workspace cursor defaults to 1 from the
+    // handle_new_workspace trigger, so we only need to update the profile.
+    await supabase
+      .from('profiles')
+      .update({ first_name: firstName, last_name: lastName })
+      .eq('id', data.user.id)
 
     revalidatePath('/', 'layout')
     redirect('/onboarding')
@@ -63,4 +58,11 @@ export async function signup(_state: AuthState, formData: FormData): Promise<Aut
 
   // No session — Supabase sent a confirmation email
   return { type: 'check_email' }
+}
+
+export async function signOut(): Promise<void> {
+  const supabase = await createClient()
+  await supabase.auth.signOut()
+  revalidatePath('/', 'layout')
+  redirect('/login')
 }

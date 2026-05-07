@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# editor / local tooling
+.obsidian/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

@@ -4,6 +4,1147 @@ All meaningful changes to the project are logged here.
 
 ---
 
+## [2026-05-07] — Settings restructure + phone number provisioning
+
+Cut Settings from 10 sections to **5**: Account · Business · Receptionist ·
+Connections · Billing. Each top-level section page renders multiple
+subsections inline, so most controls are one click deep instead of two.
+
+### New
+- `src/app/(app)/settings/_components/PhoneNumberSection.tsx` — client
+  component for Settings → Connections → Echon phone number. Wraps the
+  existing `claimNumber` server action from
+  `src/app/onboarding/actions.ts` so onboarding Step 11 and Settings hit
+  the same provisioning path. Shows the existing `phone_numbers` row if
+  one exists; otherwise renders an area-code input + "Get my number"
+  button. Limit 1 number per workspace; "need more, contact support"
+  copy uses the new `SUPPORT_CONTACT` constant.
+- `SUPPORT_CONTACT` constant in `src/app/(app)/settings/_constants.ts`
+  — single string the whole app references when telling users to
+  contact support. Currently a placeholder ("support (coming soon)");
+  flip when the real address exists (BACKLOG: Customer support email).
+
+### Changed
+- `src/app/(app)/settings/_constants.ts` rewritten — 5 slugs:
+  `account`, `business`, `receptionist`, `connections`, `billing`.
+- `src/app/(app)/settings/[section]/page.tsx` rewritten — dispatches
+  on the 5 slugs and renders subsection stacks. Mappings:
+  - **Account** → Profile + Notifications (placeholders)
+  - **Business** → Hours + Services & pricing + Schedule + Team. Schedule
+    shares the `ScheduleSettingsForm` with the gear modal on `/schedule`
+    so they stay synced (one DB row).
+  - **Receptionist** → Voice & persona + After-hours + Escalation
+    (placeholders, were "Voice agent" and "After-hours & escalation")
+  - **Connections** → Echon phone number (real, working) + Calendar +
+    Other integrations
+  - **Billing** → Plan & payment
+
+### Backlog (added)
+- **Customer support email + intake** — pre-pilot.
+- **Settings panel for Recommended action** — deferred; revisit only
+  on pilot demand.
+
+---
+
+## [2026-05-07] — Vapi webhook DB writes (Phase 4 step 1)
+
+The Vapi webhook receiver no longer drops events on the floor. Calls show
+up in the dashboard the moment Vapi rings the agent, get enriched as the
+call progresses, and are finalized on `end-of-call-report` with recording
+URL + transcript + duration + raw payload. LLM-driven extraction
+(summary, outcome, structured fields) is still pending — `outcome` stays
+at `processing` until the Inngest job lands.
+
+### New
+- `src/lib/supabase/service.ts` — RLS-bypassing service-role client for
+  webhook flows. Reads `SUPABASE_SERVICE_ROLE_KEY` (server-only env var
+  that you must add in Vercel + `.env.local`).
+- `src/app/api/webhooks/vapi/_lib/parse.ts` — defensive accessors for
+  Vapi message fields (caller / callee phone, started/ended at,
+  recording url, transcript, duration, cost) that handle both the
+  current and older payload shapes.
+- `src/app/api/webhooks/vapi/_lib/db.ts`:
+  - `workspaceIdForNumber` — resolves the dialled Echon number to a
+    workspace via `phone_numbers.e164_number`.
+  - `customerIdByPhone` — resolves the caller's phone to an existing
+    customer in the workspace.
+  - `ensureCaseForCallServer` — service-role variant of the existing
+    `ensureCaseForCall` server action; the webhook can't redirect to
+    `/login`, so it needs an unauthenticated path.
+
+### Changed
+- `src/app/api/webhooks/vapi/route.ts` rewritten:
+  - `status-update`: upsert `calls` (insert on first event, partial
+    update on later events so `started_at` doesn't get clobbered),
+    insert `call_events` row tagged `status:<status>`, link to a case
+    once the customer is known.
+  - `end-of-call-report`: persist `ended_at`, `duration_sec`,
+    `recording_url`, `transcript`, `cost_cents`, plus the raw payload in
+    `raw_end_of_call_report`. Insert `call_events` row tagged
+    `end_of_call_report`. `outcome` stays at `processing`.
+  - Test calls (`metadata.test === true`) still skip DB writes.
+  - Errors logged but webhook always 200s so Vapi doesn't retry on bad
+    payloads.
+
+### Required action
+- Add `SUPABASE_SERVICE_ROLE_KEY` (the service-role JWT from Supabase
+  → Project Settings → API) to `.env.local` and Vercel.
+
+---
+
+## [2026-05-07] — `/schedule` week view + case modal
+
+`/schedule` is no longer a 404. Google-Calendar-style week grid keyed off
+the existing case → technician relationship, with a pill-row operator
+filter (default = All), prev/today/next week navigation via `?week=`,
+and a Day · Week · Month switcher with only Week active. Block colour
+inherits the assigned technician's swatch (zinc for unassigned). Click a
+block → opens the case in a new modal.
+
+Cases now have a modal pattern matching customers and calls — `?case=<id>`
+opens an overlay anywhere in the app. Customer/call modals close cleanly
+when a case opens, so only one modal is ever visible.
+
+### New
+- Migration `db/migrations/013_add_schedule_settings.sql` (Supabase mirror
+  `supabase/migrations/20260507000000_add_schedule_settings.sql`) —
+  **pending apply**: adds `workspace_settings.week_start` ('sun' default,
+  'mon') and `workspace_settings.schedule_time_range` ('business' default
+  = 6 AM – 8 PM, or 'full' = 24h).
+- `src/app/(app)/schedule/`:
+  - `page.tsx` — server-fetches the week's appointments + technicians +
+    settings, RLS-scoped, joins case → technician for colouring + filter.
+  - `_components/WeekCalendar.tsx` — client-side calendar grid with
+    overlap math (cluster-then-column layout), hour gridlines, today
+    column highlight, dense vs full block formatting.
+  - `_components/OperatorFilter.tsx` — pill row (`All` · technicians ·
+    `Unassigned`) driving `?tech=`.
+  - `_components/WeekNav.tsx` — prev/today/next + week label.
+  - `_components/ViewSwitcher.tsx` — Day · Week · Month placeholder.
+  - `_components/Tabs.tsx` — Calendar / Settings tab toggle.
+  - `_components/ScheduleSettingsForm.tsx` — shared form used by both the
+    `/schedule` Settings tab and Settings → Schedule.
+  - `actions.ts` — `updateScheduleSettings` server action.
+  - `_lib/week.ts` — week-math helpers (`startOfWeek`, `parseWeekParam`,
+    `formatWeekLabel`, `addDays`, `timeRangeBounds`).
+- `src/app/_components/cases/`:
+  - `CaseDetailBody.tsx` — extracted from `/cases/[id]/page.tsx`; shared
+    by the page and the new modal.
+  - `CaseLink.tsx` — client `<button>` that adds `?case=<id>` and clears
+    `?customer` + `?call` (one modal at a time).
+  - `CaseDetailModal.tsx` — URL-driven overlay, watches `?case=<id>`.
+  - `loadCaseDetail.ts` — server-action wrapper around `fetchCaseDetail`.
+  - `RecommendedActionCard.tsx` — moved from
+    `(app)/cases/[id]/_components/` so the modal and page can share it.
+
+### Changed
+- `src/app/_components/calls/CallLink.tsx` and
+  `src/app/_components/customer-profile/CustomerLink.tsx` now also
+  clear `?case=` when opening, so the three modals stay mutually
+  exclusive.
+- `src/app/(app)/layout.tsx` mounts `CaseDetailModal` alongside the
+  existing customer/call modals.
+- `src/app/(app)/cases/[id]/page.tsx` reduces to a thin wrapper around
+  `CaseDetailBody` plus the back-link.
+- `src/app/(app)/settings/_constants.ts` adds a `schedule` section.
+- `src/app/(app)/settings/[section]/page.tsx` renders the shared
+  `ScheduleSettingsForm` for the new section, hitting the same row that
+  the in-page Settings tab writes.
+
+### Removed
+- `src/app/(app)/cases/[id]/_components/RecommendedActionCard.tsx` (moved
+  to the shared `_components/cases/` folder).
+
+---
+
+## [2026-05-06] — Cases tab + call modal pattern
+
+Splits the conflated `Calls` surface into two tabs: `Cases` (issue-level)
+and `Calls` (raw log). Calls everywhere now open in a URL-driven modal
+(`?call=<id>`) — same pattern as the customer profile modal — instead of
+navigating away from whatever you were doing. Recommended action moves
+from per-call to per-case so reps get one brief covering every call on
+the issue.
+
+### New
+- Migration `db/migrations/012_per_case_recommended_action.sql` (Supabase
+  mirror `supabase/migrations/20260506030000_per_case_recommended_action.sql`)
+  — **pending apply**:
+  - Adds `cases.recommended_action`
+  - Backfills from each case's most-recent call's `recommended_action`
+  - Drops `calls.recommended_action`
+- `src/app/_components/calls/` — call modal pattern, mirrors the
+  customer-profile module:
+  - `types.ts` — isomorphic `CallDetail` shape
+  - `data.ts` — `fetchCallDetail` (server)
+  - `actions.ts` — `loadCallDetail` server-action wrapper
+  - `CallLink.tsx` — client `<button>` that adds `?call=<id>` to the URL
+    and clears `?customer` (one modal at a time)
+  - `CallDetailBody.tsx` — shared body used by both the modal and the
+    standalone `/calls/[id]` page (header + transcript + summary +
+    extracted fields + flag-for-review). Also surfaces a "View case →"
+    link in the meta row when the call belongs to a case.
+  - `CallDetailModal.tsx` — URL-driven overlay mounted in `(app)/layout`
+- `src/app/(app)/cases/page.tsx` — Cases list, default filter Open. One
+  row per case: status pill · title · 3 colored slot dots · customer
+  name (CustomerLink — opens customer modal) · opened relative · counts
+  of linked calls/appointments. Status toggle (Open / All) + search.
+- `src/app/(app)/cases/[id]/page.tsx` — Case detail. Reuses
+  `<CaseSection>` (with new `hideItemsList` prop) for the header + slot
+  dropdowns + auto-assign + merge + close, then dedicated sections for
+  linked calls (open in call modal) · linked appointments · notes
+  (editable). Sidebar: per-case Recommended action card.
+- `src/app/(app)/cases/[id]/_components/RecommendedActionCard.tsx` —
+  client card with Generate / Regenerate button calling
+  `generateCaseRecommendedAction`.
+- `src/app/_components/cases/actions.ts` — added
+  `generateCaseRecommendedAction(caseId)` (aggregates every call's
+  transcript + summary in the case, oldest first, sends to Haiku with
+  the trade-aware operator briefing prompt) and `updateCaseNotes`.
+
+### Changed
+- `src/app/_components/TopNav.tsx` — added Cases between Dashboard and
+  Calls. New nav order: Dashboard · Cases · Calls · Customers ·
+  Schedule · Settings.
+- `src/app/(app)/calls/[id]/page.tsx` — reverted to plain call detail.
+  Renders `<CallDetailBody>`. Back link is context-aware: prefers
+  `?from=customer`, falls back to the call's case, then dashboard.
+  CaseSection no longer rendered here.
+- `src/app/(app)/calls/[id]/actions.ts` — `generateRecommendedAction`
+  removed (per-case version replaces it). `toggleFlagForReview` stays.
+- `src/app/_components/cases/CaseSection.tsx` — added `hideItemsList`
+  prop so the case detail page can suppress the inline items list (it
+  renders dedicated sections instead). Items list links use `CallLink`.
+- `src/app/_components/cases/types.ts` — added `recommended_action` to
+  `CaseRecord`.
+- All call links across the app swapped to `<CallLink>` (wide rollout):
+  dashboard `RecentCalls` + `NeedsAttention`, the `/calls` table,
+  customer profile timeline call cards (also drops `?from=customer`
+  query param since the modal closes naturally on Escape/X). Customer
+  profile rows now have a customer-name button (opens customer modal)
+  separate from the call body (opens call modal) — no nested
+  buttons-in-anchors.
+- `src/app/_components/customer-profile/CustomerLink.tsx` — clears any
+  `?call` param when adding `?customer` so only one modal renders at a
+  time (and vice versa in `CallLink`).
+- `src/app/(app)/layout.tsx` — mounts `<CallDetailModal />` alongside
+  `<CustomerProfileModal />`.
+
+### Removed
+- `src/app/(app)/calls/[id]/_components/GenerateActionButton.tsx` — the
+  per-call generator. Replaced by the per-case
+  `RecommendedActionCard`.
+
+---
+
+## [2026-05-06] — Customer profile: collapsible per-call transcripts (DD/MM/YYYY)
+
+Each call card in the customer profile timeline now has an expandable
+"Transcript" toggle (HTML `<details>`) that reveals the full Vapi turn
+transcript inline. The toggle's right-side label shows the call date in
+DD/MM/YYYY format so the user can scan history without expanding every
+row. Empty-transcript calls render an inline placeholder; the toggle
+itself still works.
+
+### Added
+- `transcript` selected on the calls query in
+  `src/app/_components/customer-profile/data.ts` + `TranscriptTurn` type
+  exported from there.
+- Transcript `<details>` block in `CallTimelineCard` of
+  `src/app/_components/customer-profile/CustomerProfileBody.tsx`, plus a
+  `formatDateDMY` helper.
+
+### Backlog
+- Added tier-gating note: "Recommended action" on call detail should
+  eventually be a higher-tier feature. Parked until pilot feedback
+  defines the tier structure — see BACKLOG.md.
+
+---
+
+## [2026-05-06] — Cases (one issue per customer; replaces per-appointment operator assignment)
+
+`/calls/[id]` is now a case-centric view: a "case" is one issue for one
+customer that can span multiple calls and appointments. Each case has up
+to three nullable role slots — CS rep, Technician (vertical-agnostic
+field worker), Manager. Per-appointment operator assignment from
+yesterday's migration 010 is removed; the case's `technician_id` is the
+single source of truth.
+
+### New
+- Migration `db/migrations/011_add_cases.sql` (Supabase mirror
+  `supabase/migrations/20260506020000_add_cases.sql`) — **pending
+  apply**, run `npx supabase db push --include-all`.
+  - `case_status` enum (`open`, `closed`)
+  - `cases` table with RLS, three operator FK slots
+    (`cs_rep_id` / `technician_id` / `manager_id`), `title`, `notes`,
+    `opened_at` / `closed_at`
+  - `calls.case_id`, `appointments.case_id` (nullable, on delete set null)
+  - **Drops** `appointments.assigned_operator_id` (yesterday's column)
+  - `operators` gains `is_cs_rep` / `is_technician` / `is_manager`
+    booleans + `priority_cs` / `priority_tech` / `priority_manager`
+    smallints (1–10, default 5, check-constrained)
+  - Backfill: each existing call with a customer becomes its own case
+    (coarse — humans merge with the new merge UI when needed)
+- `src/app/_components/cases/` — new module:
+  - `data.ts` — `fetchCaseDetail` (case + customer + linked calls +
+    linked appointments + workspace operators), `fetchMergeCandidates`
+    (recent calls for the same customer in *other* cases)
+  - `actions.ts` — `ensureCaseForCall` (lazy-create / attach),
+    `setCaseStatus`, `updateCaseTitle`, `assignCaseSlot`,
+    `recommendAutoAssign` (deterministic, no LLM — eligibility flag +
+    no scheduling overlap + per-role priority), `confirmAutoAssign`,
+    `mergeCases`, `loadMergeCandidates`
+  - `CaseSection.tsx` — renders the "case" card on `/calls/[id]`:
+    customer + status + opened date + three slot dropdowns + Auto-assign
+    button + Merge button + Mark closed/Reopen + the list of every
+    call/appointment in this case (focused call marked "viewing")
+  - `CaseSlotPicker.tsx` — client `<select>` per slot. Only operators
+    marked eligible for that slot appear in the dropdown.
+  - `AutoAssignDialog.tsx` — client modal that pulls deterministic
+    recommendations on open, lets the user toggle individual slots
+    off, and applies via `confirmAutoAssign`. Surfaces per-slot
+    explanations ("No technician available — Mike is booked at 2:30")
+    when no eligible+available operator was found.
+  - `MergeCasesDialog.tsx` — client modal showing this customer's
+    recent calls grouped by case; click a candidate, confirm, and the
+    other case's calls + appointments move into this one.
+
+### Changed
+- `src/app/(app)/calls/[id]/page.tsx` — calls `ensureCaseForCall` on
+  render; renders `<CaseSection>` above the existing call header.
+  Per-appointment operator picker block removed.
+- `src/app/(app)/settings/_components/OperatorForm.tsx` — split out as
+  a client component. New eligibility checkboxes (`Customer service` /
+  `Technician` / `Manager`); Advanced `<details>` with per-role
+  priority `<select>`s 1–10 — only the inputs for *checked* roles are
+  shown. Info icon (hover-tooltip) on the Role field explaining
+  free-text + comma-separated multi-roles.
+- `src/app/(app)/settings/_components/TeamSection.tsx` — operator list
+  now shows eligibility tags (CS / Tech / Manager pills) inline.
+- `src/app/(app)/settings/actions.ts` — operator create/update payload
+  carries the new eligibility booleans + per-role priorities, with a
+  `checkboxBool` helper (handles the hidden-default + checked-true
+  pattern needed for unchecked checkboxes to post `false`).
+- `src/app/_components/customer-profile/data.ts` + `CustomerProfileBody.tsx`
+  — dropped `assigned_operator_id` and the per-appointment operator
+  picker (column gone; case is now the source of truth).
+
+### Removed
+- `src/app/_components/operators/` — `AssignedOperatorPicker` and its
+  `assignOperator` action are obsolete; deleted.
+
+### Backlog
+- New entry: notify operators on case assignment (email + SMS) — needs
+  SMTP + SMS providers wired first; deferred to pre-pilot.
+
+---
+
+## [2026-05-06] — Settings page + Team / operators
+
+First authed `/settings` surface lands under the `(app)/` group, plus
+the operator schema that lets humans assign appointments. Per-operator
+calendars are explicit future work; v1 is just the assignment plumbing.
+
+### New
+- Migration `db/migrations/010_add_operators.sql` (Supabase mirror
+  `supabase/migrations/20260506010000_add_operators.sql`) — creates
+  `operators (id, workspace_id, name, email, phone, role, color,
+  created_at, updated_at)` with RLS, plus
+  `appointments.assigned_operator_id` nullable FK + partial index.
+  **Pending apply** — run `npx supabase db push --include-all`.
+- `src/app/(app)/settings/page.tsx` — placeholder cards for all 9
+  sections per `_wireframes/settings.md` (Account, Voice agent,
+  Business hours, Services & pricing, After-hours, Integrations,
+  Notifications, Team, Billing) with a sticky left-rail anchor nav.
+  Only Team is functional in v1.
+- `src/app/(app)/settings/_components/TeamSection.tsx` — operator
+  list + add/edit/remove forms + 9-color preset picker.
+- `src/app/(app)/settings/actions.ts` — `createOperator`,
+  `updateOperator`, `deleteOperator` server actions with hex-color
+  validation.
+- `src/app/_components/operators/AssignedOperatorPicker.tsx` —
+  client `<select>` that auto-submits on change. Renders a colored
+  dot for the currently-assigned operator. Empty option = unassigned.
+  When no operators exist, renders a link into Settings.
+- `src/app/_components/operators/actions.ts` — `assignOperator`
+  server action; revalidates dashboard / calls / customers paths
+  since the modal mounts on every authed page.
+
+### Changed
+- `src/app/_components/customer-profile/data.ts` — appointment
+  entries now include `assigned_operator_id`; profile data carries
+  the workspace's operator list. Added 4th parallel query.
+- `CustomerProfileBody` — appointment cards in the timeline now
+  render an `AssignedOperatorPicker` underneath the appointment
+  details.
+- `src/app/(app)/calls/[id]/page.tsx` — for booked calls, fetches
+  the workspace's operators and renders the picker beneath the
+  Extracted-fields panel.
+
+---
+
+## [2026-05-06] — Lift authed routes into shared `(app)/` group
+
+Pure refactor. Three routes (`dashboard`, `calls`, `customers`) each
+had a near-identical `layout.tsx` running the same auth gate +
+TopNav + CustomerProfileModal mount. Consolidated into one
+`src/app/(app)/layout.tsx`. URLs unchanged — `(app)` is a Next.js
+route group, not a path segment.
+
+### Changed
+- `src/app/dashboard/`, `src/app/calls/`, `src/app/customers/` →
+  moved under `src/app/(app)/`. Per-route `layout.tsx` files deleted.
+- `src/app/(app)/layout.tsx` — single auth gate + chrome for every
+  authed surface. Future Settings / Schedule pages drop in here.
+- `src/app/_components/customer-profile/CustomerProfileBody.tsx` —
+  updated server-action import path to `@/app/(app)/customers/[id]/actions`.
+
+---
+
+## [2026-05-06] — Customer profile modal
+
+Customer names across the dashboard, calls list, customers list, and
+call detail header now open the profile in a URL-driven modal overlay
+(`?customer=<id>`) instead of navigating to `/customers/[id]`. The
+standalone page still works for direct links / shareability — both
+render the same body.
+
+### New
+- `src/app/_components/customer-profile/` — shared module:
+  - `data.ts` — `fetchCustomerProfile(id)` (customer + merged
+    timeline of calls and appointments, workspace-scoped).
+  - `CustomerProfileBody.tsx` — renders header, history timeline,
+    notes form, equipment editor. Used by both the page and the modal.
+  - `actions.ts` — `loadCustomerProfile` server action wrapper for
+    the modal's client-side fetch.
+  - `CustomerLink.tsx` — client `<button>` that pushes
+    `?customer=<id>` onto the current URL. Implemented as a button
+    so it can sit inside row-level Links without nesting `<a>` tags.
+  - `CustomerProfileModal.tsx` — client overlay that watches
+    `?customer=<id>` via `useSearchParams`, fetches via the action,
+    handles Escape, click-outside, X button, body scroll lock. Closes
+    by removing the param via `router.push` so refresh keeps it open
+    and back/forward navigates between open and closed states.
+
+### Changed
+- `src/app/customers/[id]/page.tsx` — slimmed to a thin wrapper
+  around `CustomerProfileBody` + back-link. All the rendering logic
+  moved to the shared body so the page and modal can never drift.
+- `src/app/dashboard/_components/RecentCalls.tsx`,
+  `NeedsAttention.tsx` — customer name now wrapped in `CustomerLink`
+  when a customer record exists; row meta still links to `/calls/[id]`.
+  NeedsAttention split the row Link so the name button isn't nested
+  inside an anchor.
+- `src/app/calls/page.tsx` — Customer cell uses `CustomerLink` when
+  the call has a linked customer; falls back to a `/calls/[id]` Link
+  for unknown callers.
+- `src/app/customers/page.tsx` — every cell in the table swapped from
+  `Link href="/customers/[id]"` to `CustomerLink` so clicking
+  anywhere on a row opens the modal.
+- `src/app/calls/[id]/page.tsx` — header customer name wraps in
+  `CustomerLink` when the call is linked to a customer.
+- `dashboard/`, `calls/`, `customers/` layouts each mount
+  `<CustomerProfileModal />` so the overlay is available wherever a
+  `CustomerLink` lives. Task 2 (lift to `(app)/`) will dedupe.
+
+---
+
+## [2026-05-05] — Customers list + customer profile (records, not archive)
+
+Built customer records instead of an archive. The "look up Sarah's
+HVAC history a year from now" use case is a customer-record need, not
+a stash-completed-things one — completed appointments still appear on
+the customer's profile, and on `/calls` and the future `/schedule`.
+
+### New
+- Migration `db/migrations/009_add_customer_equipment.sql` (Supabase
+  mirror `supabase/migrations/20260505020000_add_customer_equipment.sql`)
+  — adds `customers.equipment jsonb default '[]'`. Trade-agnostic
+  shape: `{ id, type, brand?, model?, install_date?, notes?, created_at }`.
+  Strict columns can't fit HVAC + plumbing + electrical + roofing
+  without N tables; JSONB lets the per-trade UI evolve without
+  another migration. Applied via `supabase db push --include-all`.
+- `src/app/customers/layout.tsx` — auth gate (mirrors dashboard +
+  calls). 4th authed surface; lift to a shared `(app)` route group
+  is now overdue (tracked).
+- `src/app/customers/page.tsx` — list view, server-rendered. Columns:
+  Name, Phone, Last contact (relative), Calls (count), Status (Open
+  follow-up pill or em-dash). Per-row link to the profile.
+  - Sort dropdown: Most recent contact (default), Most frequent
+    caller, Name (A-Z).
+  - Open follow-up filter button. A customer is "open follow-up" if
+    they have a `quote_requested` call AND no booked/completed
+    appointment scheduled after that call's start time.
+  - Search input (name / phone / email / address, case-insensitive).
+- `src/app/customers/_components/sort-options.ts` — neutral module
+  with `SORT_OPTIONS` + `SortKey`. Same pattern as the dashboard's
+  `window-options.ts` (avoids the client-component-export-as-proxy
+  trap that bit us before).
+- `src/app/customers/_components/SortPicker.tsx`,
+  `OpenFollowUpToggle.tsx` — client components updating `?sort=` and
+  `?open=` URL params via `router.replace`.
+- `src/app/customers/[id]/page.tsx` — profile page:
+  - Header card: name, phone, secondary phone, email, address,
+    "customer since" date, history count line.
+  - Left column: chronological timeline of calls + appointments
+    interleaved (newest first). Call cards show outcome badge +
+    service + first 2 summary bullets and link to `/calls/[id]`.
+    Appointment cards show status + service type + service address
+    and link to the source call when one exists.
+  - Right column: free-text notes (textarea + Save button) and an
+    equipment list with collapsible "+ Add equipment" form. Each
+    item has a × button to delete.
+- `src/app/customers/[id]/actions.ts` — server actions:
+  `updateNotes`, `addEquipment`, `removeEquipment`. All scope by
+  workspace_id explicitly on top of RLS. Equipment add reads-mutates-
+  writes the array; small race window is acceptable (re-add is one
+  click).
+
+### Changed
+- `src/app/_components/TopNav.tsx` — added `Customers` between Calls
+  and Schedule.
+- `CLAUDE.md` — top nav order updated to
+  `Dashboard · Calls · Customers · Schedule · Settings`.
+- `src/app/dashboard/actions.ts` — `SAMPLE_CUSTOMERS` now carries
+  per-customer notes + equipment so the profile page renders
+  meaningfully out of the seed:
+  - **Sarah**: 2 Trane AC units (zoned) + Trane furnace, leak-history
+    note on the upstairs unit, a "don't send Tech #4" preference.
+  - **James**: Carrier furnace with intermittent pilot, gate code +
+    dog warning in notes.
+  - **Priya**: 8-year-old Carrier heat pump matching her quote-request
+    summary, follow-up reminder in notes.
+  - **Emma**: 3-year-old Lennox AC installed by a different company,
+    service-plan-interest reminder in notes.
+- `seedFakeCalls` insert generates `id` + `created_at` for each
+  equipment item via `crypto.randomUUID()` so the trade-agnostic
+  shape is fully populated.
+
+### Notes / open items
+- Equipment editing is add + delete only in v1; updating an existing
+  item's fields means delete + re-add. Inline edit is a follow-up.
+- Filters and search join in JS after a broad fetch — fine at MVP
+  scale; Postgres view becomes worthwhile at thousands of customers.
+- Route-group lift `(app)/` is now overdue with 4 authed surfaces;
+  next major refactor candidate.
+
+---
+
+## [2026-05-05] — Dashboard Section 3: Upcoming appointments
+
+Closes the Phase 6 dashboard MVP (all four wireframe sections now
+shipped). Today + tomorrow only — anything further out lives on the
+forthcoming `/schedule` page.
+
+### New
+- `src/app/dashboard/_components/UpcomingAppointments.tsx` — server
+  component. Queries `appointments` joined to `customers`, filtered to
+  `[startOfToday, endOfTomorrow)`, max 8 rows, sorted ascending. Rows
+  are visually grouped under sticky-style "Today" / "Tomorrow"
+  headers (only the first row of each bucket renders the header).
+  Each row: time · customer name (or formatted phone fallback) ·
+  service type + address · status pill. Whole row is a link to the
+  source `calls/[id]` when `call_id` is present, no-op otherwise
+  (so a manually-entered appointment doesn't dead-link).
+- "View all in Schedule →" link below the list (target route
+  doesn't exist yet — same intentional dead link as the wireframe).
+
+### Status pill colors
+- `booked` → emerald
+- `rescheduled` → blue
+- `completed` → zinc
+- `canceled` → zinc + line-through
+- `no_show` → amber
+
+### Changed
+- `src/app/dashboard/page.tsx` — mounts `<UpcomingAppointments>`
+  between `<NeedsAttention>` and `<RecentCalls>` to match the
+  wireframe order.
+
+### Empty state
+"Nothing scheduled today or tomorrow." — same dashed-border treatment
+as Needs Attention's empty state for visual consistency.
+
+---
+
+## [2026-05-05] — Dashboard Section 1: Metrics tiles + window picker
+
+Three at-a-glance tiles at the top of the dashboard, each with a
+distinct visualization so the eye reads them differently. Time window
+is user-controlled via a dropdown (URL param ?window=, no client-side
+data fetching).
+
+### New
+- `src/app/dashboard/_components/WindowPicker.tsx` — client `<select>`.
+  Options: Today / Past 7 days / Past 30 days / Past year / Year to
+  date / All time. Updates `?window=` via `router.replace`; default is
+  Past 7 days.
+- `src/app/dashboard/_components/MetricsTiles.tsx` — server component.
+  Three tiles, computed from a single workspace-scoped query covering
+  [priorStart, now]:
+  - **Calls handled** — count + sparkline (filled-area inline SVG).
+    Buckets adapt to window: hourly for Today, daily for ≤30d,
+    weekly for year/YTD, monthly for all-time.
+  - **Appointments booked** — count + horizontal conversion bar
+    ("12 of 47 calls · 26%"). Bookings as a fraction of all calls in
+    window. Blue accent.
+  - **New customers** — count + ratio fill bar
+    ("8 of 23 callers · 35%"). A "new" caller = phone with at least
+    one call in window AND no calls before window start. Violet accent.
+  - Each tile has a corner **delta badge** (`↑ 18%` / `↓ 4%` / `flat`
+    / `new`) computed against the prior equivalent window. All-time
+    has no prior so the badge is hidden.
+
+### Changed
+- `src/app/dashboard/page.tsx` — accepts `searchParams.window`,
+  validates against `WINDOW_OPTIONS`, falls back to `7d` for invalid
+  or absent values. Mounts `<WindowPicker>` next to the refresh
+  button and `<MetricsTiles>` above NeedsAttention.
+
+### Notes
+- New-customer detection runs on `caller_phone` rather than
+  `customer_id` so it counts unknown callers too. A small extra query
+  fetches phones with calls before priorStart so we can correctly
+  classify both window and prior-window cohorts.
+- All math runs in JS after a single broad fetch — fine for seeded
+  workloads and early pilots; will need a Postgres view or RPC once
+  workspaces accumulate thousands of calls.
+
+---
+
+## [2026-05-05] — Dashboard "Needs attention": Resolved button
+
+Added a per-row "Resolved" checkmark to the Needs Attention list so the
+human can dismiss an item the AI surfaced when it's already been handled
+offline (or when the AI hallucinated urgency). The call still appears in
+Recent Calls and the call detail view — only the dashboard triage queue
+filters it out. Resolving a row with a known caller_phone resolves all
+unresolved calls from that phone in the 14-day window, so a repeat-caller
+situation goes away in one click instead of three.
+
+### Added
+- `db/migrations/008_add_attention_resolved_at.sql` (and Supabase mirror):
+  new `calls.attention_resolved_at timestamptz` column, null = still surfacing.
+- `resolveAttention` server action in `src/app/dashboard/actions.ts`.
+- Resolved button + filter in `src/app/dashboard/_components/NeedsAttention.tsx`.
+
+---
+
+## [2026-05-05] — Action-plan prompt: trade-aware + communication-focused
+
+The on-demand action plan was producing generic, rudimentary output
+("identify what was tried", "check whether the same tech attended").
+Rewrote the system prompt with two changes: (1) trade is now injected
+from `workspaces.business_type` so the prompt is HVAC / plumbing /
+roofing / electrical / etc. — not hardcoded HVAC; (2) the prompt is
+explicit about what NOT to write so Haiku stops padding bullets with
+filler.
+
+### Changed
+- `src/app/calls/[id]/actions.ts`:
+  - System prompt is now built per-call via `buildActionPlanSystemPrompt(trade)`.
+    Still cached (`cache_control: ephemeral`) — caches per trade, which
+    is effectively per-workspace since one workspace = one trade.
+  - `tradeLabel()` maps the `business_type` enum to natural-language
+    labels (e.g. `'deck_fence'` → `'deck and fence'`,
+    `'general_contractor'` → `'general contracting'`,
+    `'other'` → `business_type_other` text or `'service'` fallback).
+    Workspaces that haven't reached Step 3 fall back to `'service'`.
+  - Workspaces select widened to include `business_type` +
+    `business_type_other`.
+  - Prompt structure rewritten:
+    - Bullet 1 is always the **conversation opener** — exact sentence
+      in quotes, addresses customer by name, leads with action not
+      history, bans corporate-apology language.
+    - Bullet 2 is the **root cause hypothesis** in trade-specific
+      terminology (named component, not "the unit").
+    - Bullet 3 is the **concrete commitment** (specific dispatch,
+      specific person, specific time).
+    - Bullet 4 is **anticipated pushback** + the operator's response.
+    - Bullet 5 is **concession authority** — only when the call
+      history actually warrants goodwill; omitted otherwise.
+    - Explicit "DO NOT WRITE" list bans generic empathy advice,
+      tech-side diagnostic procedures, and filler bullets.
+  - `max_tokens` 400 → 500 to give room for the opener bullet.
+
+### Why
+- Trade injection: makes plumbing / electrical / roofing workspaces
+  produce trade-appropriate output without four parallel prompts.
+- Negative instructions: Haiku follows "DO NOT" lists well, and the
+  rudimentary output the user complained about came from the model
+  filling space when given vague "be concrete" guidance.
+- Conversation opener as bullet 1: a rep about to call back wants the
+  first sentence ready to read, not a list of procedural reminders.
+
+---
+
+## [2026-05-05] — On-demand AI action plan (Haiku) + escalation fix
+
+The "Recommended action" section is now generated on demand instead of
+pre-rendered. A rep clicks an AI sparkle icon to call Haiku and produce
+a brief from the call's summary + transcript. Result is persisted so
+subsequent loads don't re-generate. Saves tokens (most calls are never
+reviewed in detail) and lets the operator decide when the brief is
+worth it.
+
+### New
+- `package.json` — added `@anthropic-ai/sdk@^0.94.0`.
+- `src/lib/ai/anthropic.ts` — lazy-singleton SDK client + `MODELS`
+  registry (`haiku: 'claude-haiku-4-5-20251001'`). One place to swap
+  models.
+- `src/app/calls/[id]/_components/GenerateActionButton.tsx` — client
+  component. Inline SVG sparkle icon (one big 4-point star, one small
+  below-right), `useTransition` for the pending state ("Generating…"
+  + pulsing icon), error alert on failure.
+
+### Changed
+- `src/app/calls/[id]/actions.ts` — added `generateRecommendedAction`
+  server action. Loads the call (summary, transcript, customer,
+  outcome, urgency, address, service/system type), composes a compact
+  user prompt, calls Haiku with a cached system prompt
+  (`cache_control: { type: 'ephemeral' }`) describing how to write a
+  rep-facing brief. Persists the result to `calls.recommended_action`.
+- `src/app/calls/[id]/page.tsx` — Recommended action callout now
+  always renders, but the body is conditional: bullets if present
+  (with a regenerate button in the corner), or a "Need a brief…"
+  prompt + sparkle button if absent.
+
+### Fixed (seed)
+- Sarah Mendez call #2 now `outcome: 'escalated'` instead of
+  `'no_action'`. Customer pushed back on the appointment slot ("that's
+  not soon enough"); the right behavior is escalation. Summary
+  rewritten to reflect that the AI escalated.
+- Cleared all pre-seeded `recommended_action` text so the on-demand
+  generate flow is the default UX. Operators can click the sparkle to
+  produce a real Haiku-generated brief on any call.
+
+### Backlog
+- Vapi agent prompt — add an "escalate on rejection" behavioral rule
+  so the live agent matches the seed (`_project/BACKLOG.md`). When a
+  caller rejects the offered slot, fire `escalate_to_human` instead of
+  ending the call.
+
+---
+
+## [2026-05-05] — Recommended action on call detail + richer summaries
+
+When a rep clicks Review on a "Needs attention" item, they now see a
+generated action plan above the transcript — the brief they\'d want
+before dialing back. Distinct from `summary` (what happened) — this is
+what to do next. Plus the seed summaries are now properly descriptive.
+
+### New
+- `db/migrations/007_add_recommended_action.sql` (and Supabase mirror
+  `supabase/migrations/20260505000000_add_recommended_action.sql`) —
+  adds `calls.recommended_action text`. Applied via `supabase db push`.
+  Will eventually be populated by the same Inngest post-call job that
+  writes `summary` / `outcome` / extracted fields.
+
+### Changed
+- `src/app/calls/[id]/page.tsx` — new full-width "Recommended action"
+  callout (indigo) directly below the call header, rendered only when
+  `recommended_action` is non-empty. Uses the same bullet-line parser
+  as the summary.
+- `src/app/dashboard/actions.ts` — `SeedCall` type gains an optional
+  `recommendedAction` field; the Sarah-Mendez escalated call is now
+  the showcase example with a 5-bullet diagnostic-leading action plan
+  (refrigerant-leak hypothesis, leak-detector kit, fee-waiver
+  goodwill, replacement quote escalation). James, Priya, Emma, and
+  the unknown R-22 caller also get action plans. All summaries
+  expanded from 2 bullets to 3-5 with concrete clinical detail
+  (zones, system age, refrigerant type, symptom history) so the UI
+  has something realistic to render.
+
+### Note
+- Real Vapi calls will need agent-prompt work to make the assistant
+  extract this level of detail before hand-off — these seeds are the
+  target shape, not what the system produces today.
+
+---
+
+## [2026-05-05] — Dashboard Section 2: Needs attention
+
+Surfaces the subset of calls where a human needs to step in, ranked by
+urgency. Sits above Recent calls on the dashboard so urgent items are
+the first thing the operator sees.
+
+### New
+- `src/app/dashboard/_components/NeedsAttention.tsx` — server-rendered
+  list, max 5 rows. Pulls calls from the last 14 days and tags each
+  with a reason in priority order:
+  1. `Flagged` — `flagged_for_review = true` (red pill)
+  2. `Escalated` — outcome = `escalated` (amber)
+  3. `Repeat caller · N×` — same `caller_phone` 2+ times in last 7d (amber)
+  4. `Quote requested` — outcome = `quote_requested` (blue)
+  Rows deduped by `caller_phone` so one chatty customer can't fill the
+  list. Each row links into `/calls/[id]` with a "Review" CTA.
+- `src/app/dashboard/page.tsx` — mounts `<NeedsAttention>` above
+  `<RecentCalls>`.
+
+### Behavior
+- Empty state matches the wireframe: "Nothing needs your attention
+  right now."
+- "Mark done" and "Call back" CTAs from the wireframe are deferred —
+  "Mark done" needs a `resolved_at` column we don't have yet, and
+  outbound dialing is post-MVP. "Review" alone is enough for now.
+
+---
+
+## [2026-05-05] — `/calls` index page (basic)
+
+The Calls top-nav link was 404ing. Shipped a minimal call-log index so
+the link works and so all calls (not just the dashboard's last 10) are
+browsable.
+
+### New
+- `src/app/calls/page.tsx` — server-rendered table view, last 50
+  calls newest-first. Columns: time, customer (name + phone or just
+  phone), duration, service, outcome badge, linked appointment time
+  (booked rows only), recording indicator. Whole row is a single link
+  target via wrapped `<Link>` cells. Empty-state copy when no calls.
+
+### Deferred (per `_wireframes/call_log.md`)
+- Filter chips (Today / This week / This month / All time)
+- Outcome multi-select filter
+- Server-side search (name / phone / address)
+- CSV export
+- Realtime prepend with highlight animation
+
+A note on the page tells the user these are "coming next" so it's
+clear it's intentionally minimal, not broken.
+
+---
+
+## [2026-05-05] — `/calls/[id]` call detail page
+
+Recent-calls rows now have somewhere to land. First pass at the call
+detail UI per `_wireframes/call_detail.md` — header + two-column body
+(transcript left, extracted fields/actions right). Recording and
+transcript show empty-state copy until Phase 4 webhooks populate them;
+everything else is live.
+
+### New
+- `src/app/calls/layout.tsx` — auth gate mirroring the dashboard one
+  (redirects unauthed → `/login`, unfinished-onboarding → wizard).
+  Will be lifted into a shared `(app)` route group when a 3rd authed
+  surface lands.
+- `src/app/calls/[id]/page.tsx` — server-rendered detail page. Joins
+  `customers` and `appointments`. Sections: header (name, phone,
+  outcome badge, time/duration/direction, recording slot), transcript
+  (renders Vapi-style `[{role, message}]` turns when present),
+  summary (bullet-formatted), extracted fields table (service
+  requested, system type, service address, urgency, linked
+  appointment), action buttons.
+- `src/app/calls/[id]/actions.ts` — `toggleFlagForReview` server
+  action. Workspace-scoped update of `calls.flagged_for_review` +
+  `flag_reason`. Revalidates both detail and dashboard paths.
+
+### Behavior
+- "Flag for review" is the only live action this pass — toggles
+  `flagged_for_review` and (when set) `flag_reason`. "Edit fields"
+  and "Call back customer" are present but disabled with tooltips
+  noting they ship post-MVP.
+- 404 (`notFound()`) when the call id doesn't exist or RLS hides it.
+- All field values fall back to a dim em-dash placeholder when null,
+  so partial post-call extraction renders cleanly.
+
+---
+
+## [2026-05-05] — Recent-calls richer rows + repeat-caller flag
+
+Reworked the dashboard Recent calls section so a human handing off a
+call has enough context without clicking through, and so callers who
+keep dialing back get visually flagged.
+
+### Changed
+- `src/app/dashboard/_components/RecentCalls.tsx` — two-line row layout:
+  customer/phone + outcome badge on top, two truncated summary bullets,
+  then time + duration. Outcome rendered as a colored left border bar
+  in addition to the pill. Booked rows append the appointment time
+  inline ("Booked · Tomorrow 2pm"). New "Repeat caller · N×" amber tag
+  when the same `caller_phone` has 2+ calls in the trailing 7 days
+  (workspace-scoped query).
+- `src/app/dashboard/actions.ts` `seedFakeCalls` — rewritten with a
+  declarative `SEED_CALLS` table. Now seeds 10 calls including Sarah
+  Mendez calling 3× in 36h (repeat-caller scenario), 3 booked calls
+  with corresponding `appointments` rows (so the dashboard can render
+  appointment times), and 2-bullet summaries on every call. Seeded
+  appointments tagged via `notes = 'seed:N'` for clean teardown.
+- `src/app/dashboard/actions.ts` `clearFakeCalls` — now also wipes
+  seeded appointments before calls/customers.
+
+### Fixed
+- `seedFakeCalls` referenced a `phone` column that doesn't exist on
+  `customers` (real column is `primary_phone`); insert / select / cleanup
+  filter / customer lookup all corrected.
+
+### Backlog
+- Onboarding service-radius capture + at-call distance check
+  (`_project/BACKLOG.md`).
+
+---
+
+## [2026-05-04] — Phase 6 dashboard scaffolding (in progress)
+
+Started the dashboard MVP. Top nav + auth-gated layout shipped; first
+data section (Recent calls) wired up against real Supabase queries with
+a TEST_MODE seeder so the UI is tangible before real call traffic.
+
+### New
+- `src/app/_components/ThemeProvider.tsx` — wraps `next-themes` for
+  system/dark/light theme support. Mounted at root with
+  `defaultTheme="system"`. Theme switcher itself deferred to
+  Settings → Appearance (BACKLOG).
+- `src/app/_components/TopNav.tsx` — global nav for the authed app.
+  3-column grid: wordmark left, links centered (Dashboard · Calls ·
+  Schedule · Settings), user email + Sign out right. Active route
+  highlighted. Calls / Schedule / Settings 404 until built.
+- `src/app/dashboard/layout.tsx` — auth gate. Redirects unauthed
+  users to `/login`, unfinished-onboarding users back into the wizard
+  (gated on `workspace_settings.onboarding_completed`, not the step
+  cursor — the cursor stays at TOTAL_STEPS during the final step).
+- `src/app/dashboard/_components/RecentCalls.tsx` — server component
+  rendering the last 10 calls for the workspace. Joined customer name,
+  formatted relative time, color-coded outcome badges (`booked`,
+  `quote_requested`, `escalated`, `no_action`, `hung_up`, `failed`).
+  Empty state with the wireframe copy. Rows link to `/calls/[id]`
+  (404 until call detail page is built).
+- `src/app/dashboard/actions.ts`: `seedFakeCalls`,
+  `clearFakeCalls` — TEST_MODE-only. Seeds 10 calls across mixed
+  outcomes + 3 named customers. Tagged with `vapi_call_id` prefix
+  `seed_` and reserved phone block `+1415555010X` so cleanup never
+  touches real data.
+- `src/app/(auth)/actions.ts` — added `signOut()`.
+- Functional Refresh icon (inline SVG, no extra deps) on dashboard
+  page — re-renders via empty server-action form post.
+
+### Changed
+- Root `src/app/layout.tsx` — added ThemeProvider, fixed stale
+  `description` metadata ("Instagram DM automation" → voice
+  receptionist), `suppressHydrationWarning` on `<html>` for theme.
+- Dependencies: added `next-themes`. (`@vapi-ai/web` was added in the
+  earlier Phase 4 entry today.)
+
+### Decisions
+- **Realtime updates: deferred.** Manual refresh button instead of
+  Supabase realtime channels for MVP. Simpler, lighter, no open
+  WebSocket per tab. Revisit if pilot clients ask for it.
+- **Theme switcher location: Settings, not nav.** System default keeps
+  the nav uncluttered. Build the picker in Settings → Appearance.
+- **Route structure: kept `dashboard/layout.tsx` for now.** When `/calls`,
+  `/schedule`, `/settings` land we'll lift the auth gate into a route
+  group `(app)/` so all four share the same layout.
+
+### Backlog parking
+- Admin / developer panel widget ideas captured (all-workspaces view,
+  system health, onboarding funnel, recent signups, flagged-calls
+  inbox, pilot impersonation) — not built; per CLAUDE.md the dev
+  panel is a separate internal tool, not a view inside the client
+  dashboard.
+- Theme switcher in Settings → Appearance.
+
+---
+
+## [2026-05-04] — Phase 4 Vapi integration (onboarding portion)
+
+Wired Vapi end-to-end for the onboarding flow. Voice abstraction in
+place; assistants provisioned, updated, and testable in-browser during
+onboarding. Dashboard-blocking work for Phase 6 is unblocked.
+
+### New
+- `src/lib/voice/` — `VoiceProvider` interface, Vapi REST adapter,
+  singleton export. App code never imports the Vapi SDK directly.
+  Voice presets map to OpenAI voices (available on every Vapi account).
+- `src/app/api/webhooks/vapi/route.ts` — webhook receiver with
+  timing-safe `x-vapi-secret` header check. Routes `status-update`,
+  `end-of-call-report`, `tool-calls`. Test calls flagged via
+  `metadata.test=true` skip DB writes. DB writes + Inngest enqueue
+  still TODO.
+- `src/app/onboarding/_voice-sync.ts` — `syncVapiAssistant` helper.
+  Soft-fails so a Vapi error doesn't block onboarding. Skips when
+  `VAPI_API_KEY` is unset.
+- `src/app/onboarding/_components/TestCallButton.tsx` — Step 9 sub-step
+  4 in-browser WebRTC test call via `@vapi-ai/web`.
+- `src/app/onboarding/actions.ts` additions: `getTestCallConfig`,
+  `claimNumber`, `devSkipToDashboard` (TEST_MODE only).
+- Step 11 rewritten with non-tech-friendly forwarding-model copy and a
+  single-button claim flow.
+- Onboarding layout: "Skip to dashboard →" button in TEST_MODE banner.
+
+### Changed
+- `saveAndAdvance` / `saveAgentBuilderSubStep` defensively upsert the
+  `agent_configs` row before writing — fixes silent data loss when the
+  trigger-provisioned row was missing.
+
+### Env vars added
+`VAPI_API_KEY`, `NEXT_PUBLIC_VAPI_PUBLIC_KEY`, `ANTHROPIC_API_KEY`,
+`VAPI_WEBHOOK_SECRET` — all in Vercel + local `.env.local`. Anthropic
+key registered in Vapi's Integrations tab for BYO-LLM.
+
+### Backlog parking
+Step 10 Google Calendar OAuth (blocked on GCP verification, URGENT.md);
+Step 11 area-code coverage + geocoding from business address;
+concierge call scheduler embed. See BACKLOG.md.
+
+---
+
+## [2026-05-04] — Onboarding v2 build (Phase 5 substantially complete)
+
+Rebuilt the onboarding wizard end-to-end. All 12 steps now have real
+content (with two integration-blocked steps as polished placeholders).
+Account creation moved out of the wizard. New per-vertical service
+catalogs make the flow usable for non-HVAC businesses from day one
+(narrow-then-wide infrastructure).
+
+### Schema — applied to Supabase
+
+- **Migration 004 (Phase 3 pivot)** — applied today. Dropped DM-era schema
+  (`offers`, `dm_examples`, `wins`, `instagram_connections`, `leads`,
+  `conversations`, `messages`, `warmth_score_history`, `lead_magnets`,
+  `lead_magnet_deliveries`); added voice-product schema (`agent_configs`,
+  `phone_numbers`, `customers`, `calls`, `call_events`, `appointments`,
+  `integrations`); RLS on every new table. See 2026-05-01 entries below.
+- **Migration 005 (`onboarding_v2.sql`)** — narrowed
+  `workspaces.onboarding_step` constraint to `1..11` (later widened in
+  migration 006); re-added `referral_source` enum + `referral_source` /
+  `referral_source_other` columns on `workspaces`; added `agent_configs`
+  columns for the new Step 9 sub-flow (`tasks`, `tasks_other`,
+  `typical_callers`, `typical_callers_other`, `tone_other`,
+  `builder_substep`); widened `agent_configs.tone` check to
+  `(professional, friendly, empathetic, concise, other)`; flipped
+  `agent_configs.agent_name` default `Riley` → `John`; added
+  `phone_numbers.source` enum (`provisioned | ported | forwarded_to`),
+  `forwarded_from`, `forwarding_verified`, `concierge_call_at` so future
+  porting flows don't need a migration.
+- **Migration 006 (`add_business_type.sql`)** — recreated
+  `business_type` enum with new shape (`hvac`, `plumbing`, `roofing`,
+  `electrical`, `deck_fence`, `landscaping`, `general_contractor`,
+  `other`); added `business_type` + `business_type_other` columns on
+  `workspaces` with a CHECK constraint enforcing `other ⇒ free text`;
+  widened `onboarding_step` constraint `1..11 → 1..12` to make room
+  for the new step.
+
+### Onboarding flow — 12 steps, account creation out of the wizard
+
+Sign up at `/signup` (own page) → land at `/onboarding/1`.
+
+| Step | Title | Notes |
+|------|-------|-------|
+| 1 | Welcome | Copy: "We'll get your AI receptionist live in about **7 minutes**." Bulleted prep list. No overlay after Continue. |
+| 2 | Where did you hear about us? | Single-select; reveals free-text on "Other". |
+| 3 | What kind of business? | New step — narrow-then-wide infrastructure. HVAC / Plumbing / Roofing / Electrical / Deck-Fence / Landscaping / General contractor / Other. |
+| 4 | Business info | Name (required in prod), phone, address, service area. |
+| 5 | Services offered | **Per-vertical catalog** keyed off Step 3 (12 HVAC, 12 plumbing, 10 roofing, 11 electrical, 11 deck/fence, 12 landscaping, 12 general contractor). `other` businesses get a free-text textarea — one service per line — slugified into the same jsonb shape. |
+| 6 | Business hours | Mon-Sun grid + Closed checkbox + **timezone dropdown** (US-focused IANA names). Hydrates from saved data — no longer flashes back to Eastern after Continue. |
+| 7 | After-hours | Two options only: **Take messages** + **Escalate emergencies** (Recommended). Live transfer dropped from UI (DB enum still has it). On-call phone reveals when Escalate is picked. |
+| 8 | Quote rules | Replacement / Commercial / Insurance toggles + custom rules textarea. |
+| 9 | Build your agent | **Sub-flow with side panel.** 4 sub-steps: Tasks → Callers → Tone → Test/Review. Tasks + Callers are single-select (radio); Tone single-select with "Something else" free-text. Voice + agent name are NOT asked — agent name defaults to `John`, voice picked by Vapi at Phase-4 provisioning. Right-side **Summary** panel fills in with check marks as the user advances. Resume tracked via `agent_configs.builder_substep`. Sub-step 4 has a Phase-4 placeholder for the in-browser WebRTC test plus the review and the "Looks good — finish setup" CTA. |
+| 10 | Calendar connect | Skippable, "Highly recommended" badge. OAuth comes online in Phase 4. |
+| 11 | Number provisioning | Forwarding-first + concierge setup-call model explained. Real Vapi number provisioning + Calendly-style scheduler embed land in Phase 4. |
+| 12 | You're all set | Motivational headline: **"Go answer every call."** + "You're all set." subhead + "Go to Dashboard" button. Confetti fires on load. |
+
+### Test mode
+
+`TEST_MODE = process.env.NODE_ENV !== 'production'` (centralized in
+`_constants.ts`). When on, every required-field check (HTML `required`
+attribute + Zod `.refine()` minimum-length) is loosened so the
+developer can click through any step with empty inputs. A small amber
+banner — *"Test mode — required fields are off (dev only)"* — sits at
+the top of every onboarding step in dev so it's obvious this is on.
+Production strict-validates automatically with zero config.
+
+### Behavior
+
+- **Per-step persistence** — each Continue calls `saveAndAdvance` which
+  validates with Zod (per-step schemas), writes only that step's
+  fields, advances `workspaces.onboarding_step`, and revalidates the
+  layout. Step 9 sub-flow uses a separate `saveAgentBuilderSubStep`
+  that writes per-sub-step + bumps `agent_configs.builder_substep`.
+  Final "Looks good" on the Step 9 review submits to `saveAndAdvance`
+  with `step=9` (no-op DB write — data already saved) which advances
+  the main cursor to Step 10.
+- **Resume** — `workspaces.onboarding_step` tracks the top-level step;
+  `agent_configs.builder_substep` tracks Step 9 sub-position. Returning
+  users land on the right top-level step, and on Step 9 they jump back
+  to the sub-step they left off on.
+- **Back navigation** — "← Previous step" link below the card on every
+  step except Step 1. Inside Step 9, there's also a "← Back to sub-step
+  N" link between sub-steps. Going back doesn't wipe answers; the next
+  Continue overwrites with the new value.
+- **Overlays disabled** — the user explicitly preferred direct
+  navigation between steps. `OVERLAY_MESSAGES` is now empty;
+  `StepShell` skips the overlay when message is empty (existing code
+  path).
+
+### Files
+
+- **Schema:** `supabase/migrations/20260504000000_onboarding_v2.sql` +
+  `db/migrations/005_onboarding_v2.sql` (mirror).
+  `supabase/migrations/20260504010000_add_business_type.sql` +
+  `db/migrations/006_add_business_type.sql` (mirror).
+- **Wireframe:** `_wireframes/onboarding.md` rewritten for v2.
+- **Constants:** `src/app/onboarding/_constants.ts` —
+  `TOTAL_STEPS = 12`; new `STEP_LABELS`; `OVERLAY_MESSAGES = {}`;
+  `SKIPPABLE_STEPS = {10}`; `CONFETTI_STEPS = {6, 12}`; new
+  `REFERRAL_SOURCE_OPTIONS`, `BUSINESS_TYPE_OPTIONS`,
+  `SERVICE_CATALOGS` (per-vertical map with `getServiceCatalog`
+  helper), `TASK_OPTIONS`, `CALLER_OPTIONS`, `TONE_OPTIONS`,
+  `AGENT_BUILDER_TOTAL_SUBSTEPS = 4`, `TEST_MODE` flag.
+- **Actions:** `src/app/onboarding/actions.ts` — per-step Zod schemas
+  (Step 2-8) with `TEST_MODE`-conditional refinements; new
+  `saveAgentBuilderSubStep` action for Step 9; case 9 in
+  `saveAndAdvance` is a deliberate no-op (data saved per sub-step).
+- **Step components:** `_steps/Step{1..12}*.tsx` — Step1Welcome,
+  Step2Referral, Step3BusinessType, Step4BusinessInfo, Step5Services,
+  Step6Hours, Step7AfterHours, Step8QuoteRules, Step9BuildAgent,
+  Step10Calendar, Step11NumberProvisioning, Step12AllSet.
+- **Page:** `src/app/onboarding/[step]/page.tsx` — fetches per-step
+  defaults from `agent_configs` / `workspaces`, dispatches to the
+  right step component. Includes a `BackLink` rendered below the card
+  on every step >1.
+- **Layout:** `src/app/onboarding/layout.tsx` — adds the `TEST_MODE`
+  banner above the card.
+- **Auth:** `src/app/(auth)/actions.ts` — signup no longer skips
+  `onboarding_step` to 2. New users land at Step 1 (Welcome) since the
+  account-creation step is gone from the wizard.
+
+### Bug fixes during the session
+
+- **Cursor advance failed at Step 11/12** with
+  `workspaces_onboarding_step_check` violation — root cause was the
+  pre-pivot constraint capping `onboarding_step` at 10. Fixed by the
+  Phase 3 migration widening to 12, then later 11 (mig 005), then 12
+  again (mig 006).
+- **`'use server'` export error** — `SERVICE_CATALOG` was originally
+  exported from `actions.ts`, but `'use server'` files can only export
+  async functions. Moved to `_constants.ts`.
+- **Schema cache "business_type column not found"** — fixed by pushing
+  migration 006 to Supabase.
+- **Timezone dropdown flashed to Eastern** before navigating to the
+  next step — root cause was `revalidatePath` re-mounting Step 6 with
+  fresh `useState` initial value (browser-detected zone). Fixed by
+  hydrating Step 6 from the just-saved `agent_configs.timezone`.
+- **Welcome overlay was redundant** ("Welcome aboard." after a Welcome
+  screen). Removed all overlay messages; navigation is now direct.
+
+### Known follow-ups (Phase 4 territory)
+
+- **In-browser test call (Step 9 sub-step 4)** — currently a Phase-4
+  placeholder card. Once Vapi is connected, becomes a real WebRTC
+  preview using the just-built agent.
+- **Calendar connect (Step 10)** — currently advances cursor without
+  actually connecting. Becomes a real Google OAuth flow once the GCP
+  project + Calendar API client land.
+- **Number provisioning (Step 11)** — currently advances cursor; the
+  on-screen 3-step explainer describes what eventually happens. Real
+  Vapi number-buying API + concierge-call scheduler embed are Phase 4.
+- **DB enum cleanup** — `agent_configs.tone` enum still has the legacy
+  `direct` value not exposed in the UI; `after_hours_mode` enum still
+  has `live_transfer` not exposed. Both are harmless to leave in place;
+  worth a small cleanup migration if/when we touch those tables again.
+
+---
+
 ## [2026-05-01] — Phase 3 follow-up: OAuth tokens via Supabase Vault
 
 Updated migration 004 (still unapplied) to store OAuth tokens encrypted in

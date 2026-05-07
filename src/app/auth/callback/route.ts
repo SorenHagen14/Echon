@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
+  const next = searchParams.get('next')
 
   if (code) {
     const supabase = await createClient()
@@ -22,6 +23,13 @@ export async function GET(request: Request) {
           .from('profiles')
           .update({ first_name: firstName, last_name: lastName })
           .eq('id', data.user.id)
+      }
+
+      // Honor `next` for password-reset and similar flows. Restricted to
+      // same-origin paths so the param can't be used to bounce users off
+      // the site.
+      if (next && next.startsWith('/') && !next.startsWith('//')) {
+        return NextResponse.redirect(`${origin}${next}`)
       }
 
       // Route to onboarding if they haven't completed it yet

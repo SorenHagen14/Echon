@@ -1,19 +1,32 @@
+import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { advanceStep } from '../actions'
 import { StepClientPieces } from '../_components/StepClientPieces'
 import { Step1Welcome } from '../_steps/Step1Welcome'
+import { Step2Referral } from '../_steps/Step2Referral'
+import { Step3BusinessType } from '../_steps/Step3BusinessType'
+import { Step4BusinessInfo } from '../_steps/Step4BusinessInfo'
+import { Step5Services } from '../_steps/Step5Services'
+import { Step6Hours, type WeekHours } from '../_steps/Step6Hours'
+import { Step7AfterHours } from '../_steps/Step7AfterHours'
+import { Step8QuoteRules } from '../_steps/Step8QuoteRules'
+import { Step9BuildAgent } from '../_steps/Step9BuildAgent'
+import { Step10Calendar } from '../_steps/Step10Calendar'
+import { Step11NumberProvisioning } from '../_steps/Step11NumberProvisioning'
+import { Step12AllSet } from '../_steps/Step12AllSet'
 import {
   CONFETTI_STEPS,
-  SKIPPABLE_STEPS,
-  TOTAL_STEPS,
   isValidStep,
-  labelForStep,
+  getServiceCatalog,
 } from '../_constants'
+import type { BusinessType } from '../_constants'
 
 type Props = {
   params: Promise<{ step: string }>
 }
+
+const cardClass =
+  'rounded-xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900'
 
 export default async function StepPage({ params }: Props) {
   const { step } = await params
@@ -22,65 +35,167 @@ export default async function StepPage({ params }: Props) {
 
   const showConfetti = CONFETTI_STEPS.has(n)
 
-  // Step 1 — Welcome (only step with real content as of Phase 2).
-  // Steps 2-12 are placeholder cursor-advances until Phase 5 rebuilds them.
-  if (n === 1) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) redirect('/login')
+  // Every step now has a real component (Steps 1-12).
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
 
+  return (
+    <>
+      <div className={cardClass}>
+        {await renderStep(n, user.id)}
+        <StepClientPieces showConfetti={showConfetti} />
+      </div>
+      <BackLink step={n} />
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// BackLink — "← Previous step" rendered below the card. Hidden on Step 1.
+// Middleware allows backwards navigation; the user can revisit completed
+// steps to edit answers without losing progress.
+// ---------------------------------------------------------------------------
+
+function BackLink({ step }: { step: number }) {
+  if (step <= 1) return null
+  return (
+    <div className="mt-4 flex justify-center">
+      <Link
+        href={`/onboarding/${step - 1}`}
+        className="text-sm text-zinc-500 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+      >
+        ← Previous step
+      </Link>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// renderStep — fetches per-step server data and returns the right component.
+// Kept inline because each step has different defaults to hydrate.
+// ---------------------------------------------------------------------------
+
+async function renderStep(n: number, userId: string) {
+  const supabase = await createClient()
+
+  if (n === 1) {
     const { data: profile } = await supabase
       .from('profiles')
       .select('first_name')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single()
+    return <Step1Welcome firstName={profile?.first_name ?? ''} />
+  }
 
+  if (n === 2) {
+    return <Step2Referral />
+  }
+
+  if (n === 3) {
+    const { data: ws } = await supabase
+      .from('workspaces')
+      .select('business_type, business_type_other')
+      .eq('owner_id', userId)
+      .single()
     return (
-      <div className="rounded-xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <Step1Welcome firstName={profile?.first_name ?? ''} />
-        <StepClientPieces showConfetti={showConfetti} />
-      </div>
+      <Step3BusinessType
+        defaults={{
+          business_type: ws?.business_type ?? '',
+          business_type_other: ws?.business_type_other ?? '',
+        }}
+      />
     )
   }
 
-  const label = labelForStep(n)
-  const showSkip = SKIPPABLE_STEPS.has(n)
-  const isFinale = n === TOTAL_STEPS
+  // Steps 4-9 read from agent_configs for resume/edit defaults. Step 5 also
+  // needs the workspace's business_type to pick the right service catalog.
+  const [{ data: cfg }, { data: ws }] = await Promise.all([
+    supabase
+      .from('agent_configs')
+      .select(
+        'business_name, business_phone, business_address, service_area, services, business_hours, timezone, after_hours_mode, oncall_numbers, quote_rule_replacement, quote_rule_commercial, quote_rule_insurance, quote_rule_custom, tasks, tasks_other, typical_callers, typical_callers_other, tone, tone_other, voice_preset, agent_name, builder_substep',
+      )
+      .single(),
+    supabase
+      .from('workspaces')
+      .select('business_type')
+      .eq('owner_id', userId)
+      .single<{ business_type: BusinessType | null }>(),
+  ])
 
-  return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h1 className="mb-2 text-xl font-semibold text-zinc-900 dark:text-white">
-        Step {n} of {TOTAL_STEPS} — {label}
-      </h1>
-      <p className="mb-8 text-sm text-zinc-500 dark:text-zinc-400">
-        Placeholder — real content for this step lands in Phase 5 (HVAC-shaped onboarding).
-      </p>
+  if (n === 4) {
+    return (
+      <Step4BusinessInfo
+        defaults={{
+          business_name:    cfg?.business_name ?? '',
+          business_phone:   cfg?.business_phone ?? '',
+          business_address: cfg?.business_address ?? '',
+          service_area:
+            cfg?.service_area && typeof cfg.service_area === 'object' && 'freeform' in cfg.service_area
+              ? String((cfg.service_area as { freeform: string }).freeform)
+              : '',
+        }}
+      />
+    )
+  }
 
-      <div className="flex items-center gap-3">
-        <form action={advanceStep}>
-          <input type="hidden" name="step" value={n} />
-          <button
-            type="submit"
-            className="rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            {isFinale ? 'Go to Dashboard' : 'Continue'}
-          </button>
-        </form>
+  if (n === 5) {
+    const businessType = ws?.business_type ?? null
+    const catalog = getServiceCatalog(businessType)
+    const services = Array.isArray(cfg?.services)
+      ? (cfg!.services as Array<{ key?: string; label?: string }>)
+      : []
+    const selected = services.map((s) => s.key).filter((k): k is string => Boolean(k))
+    const freeText = businessType === 'other'
+      ? services.map((s) => s.label ?? '').filter(Boolean).join('\n')
+      : ''
+    return (
+      <Step5Services
+        businessType={businessType}
+        catalog={catalog}
+        defaults={{ selected, freeText }}
+      />
+    )
+  }
 
-        {showSkip && (
-          <form action={advanceStep}>
-            <input type="hidden" name="step" value={n} />
-            <button
-              type="submit"
-              className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            >
-              Skip
-            </button>
-          </form>
-        )}
-      </div>
+  if (n === 6) {
+    return (
+      <Step6Hours
+        defaults={{
+          hours: (cfg?.business_hours as WeekHours | undefined) ?? undefined,
+          timezone: cfg?.timezone ?? undefined,
+        }}
+      />
+    )
+  }
+  if (n === 7) return <Step7AfterHours />
+  if (n === 8) return <Step8QuoteRules />
 
-      <StepClientPieces showConfetti={showConfetti} />
-    </div>
-  )
+  if (n === 9) {
+    type Tone = 'professional' | 'friendly' | 'empathetic' | 'concise' | 'other'
+    return (
+      <Step9BuildAgent
+        defaults={{
+          tasks:
+            Array.isArray(cfg?.tasks) ? (cfg!.tasks as string[]) : undefined,
+          tasks_other: cfg?.tasks_other ?? undefined,
+          typical_callers:
+            Array.isArray(cfg?.typical_callers) ? (cfg!.typical_callers as string[]) : undefined,
+          typical_callers_other: cfg?.typical_callers_other ?? undefined,
+          tone: (cfg?.tone as Tone | undefined) ?? undefined,
+          tone_other: cfg?.tone_other ?? undefined,
+          business_name: cfg?.business_name ?? undefined,
+          builder_substep: cfg?.builder_substep ?? undefined,
+        }}
+      />
+    )
+  }
+
+  if (n === 10) return <Step10Calendar />
+  if (n === 11) return <Step11NumberProvisioning />
+
+  if (n === 12) return <Step12AllSet />
+
+  return null
 }
