@@ -259,7 +259,16 @@ Still to land (non-blocking for Phase 6 dashboard work):
       header `x-vapi-secret: <same value as VAPI_WEBHOOK_SECRET>` (Vapi
       doesn't have a built-in "Server URL Secret" field — you add it
       via the Headers section).
-- [ ] Inngest job: post-call processing
+- [x] Post-call processing (2026-05-07): Haiku extracts `summary`,
+      `outcome`, `urgency`, `service_address`, `service_requested`,
+      `system_type`, customer name, appointment time/duration, and a
+      `flagged_for_review` flag from the transcript. Wired via Next's
+      `after()` so it runs post-200 without blocking Vapi. Lives at
+      `src/server/process-call-end.ts` + `src/lib/ai/post-call.ts`.
+      Pure orchestration design — easy to lift into a real Inngest
+      function later if/when retry/observability matter.
+      **Not yet:** notifications (after-hours alerts, escalation acks)
+      — needs SMTP + SMS infra. Tracked separately.
   - Anthropic Sonnet extracts structured fields from transcript
   - Updates `customers`, writes `calls.summary` + `outcome`, links
     appointment if booked

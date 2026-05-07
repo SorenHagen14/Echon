@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { timingSafeEqual } from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/service'
+import { processCallEnd } from '@/server/process-call-end'
 import {
   callerPhone,
   calleePhone,
@@ -255,4 +256,16 @@ async function handleEndOfCallReport(m: VapiMessage): Promise<void> {
   if (customerId) {
     await ensureCaseForCallServer(supabase, workspaceId, dbCallId)
   }
+
+  // Hand off LLM extraction + customer/appointment/case wiring to a
+  // post-response task so we don't block Vapi's webhook on a Haiku call.
+  // `after()` keeps the function alive until processCallEnd resolves.
+  const finalCallId = dbCallId
+  after(async () => {
+    try {
+      await processCallEnd(finalCallId)
+    } catch (e) {
+      console.error('[vapi-webhook] processCallEnd failed', { callId: finalCallId, err: String(e) })
+    }
+  })
 }

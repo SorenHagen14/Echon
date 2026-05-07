@@ -4,6 +4,45 @@ All meaningful changes to the project are logged here.
 
 ---
 
+## [2026-05-07] — Post-call summarization (Phase 4 step 2)
+
+When a call ends, Haiku reads the transcript and writes back a
+2-3-sentence summary, the call's outcome (booked / quote_requested /
+escalated / no_action / hung_up / failed), urgency, service address,
+service requested, system type, and — when the agent confirmed a
+specific time — the appointment row. The processor also upserts the
+caller's customer record and re-runs case linking once the customer
+is known.
+
+`outcome` finally turns from `processing` into a real value, which is
+what `/calls`, `/dashboard`, and the Cases tab all key off.
+
+### New
+- `src/lib/ai/post-call.ts` — `extractCallFields` runs Haiku with a
+  strict-JSON system prompt against the transcript, defends against
+  unparseable output, returns a typed `PostCallExtraction`.
+- `src/server/process-call-end.ts` — orchestration that stitches the
+  extraction into the DB: writes calls row updates, upserts customer,
+  inserts appointment when booked, links case via the existing
+  service-role `ensureCaseForCallServer`. Idempotent on the call row.
+- `MODELS.sonnet` registered in `src/lib/ai/anthropic.ts` for future
+  use.
+
+### Changed
+- `src/app/api/webhooks/vapi/route.ts` — on `end-of-call-report`, after
+  persisting the row + 200ing Vapi, hands off `processCallEnd(callId)`
+  via Next's `after()` helper. Vercel keeps the function alive while
+  Haiku runs (~2-4s) without delaying the webhook ack.
+
+### Not in this PR
+- Inngest. Built as plain orchestration so the LLM call doesn't depend
+  on extra infra. Migrating to a real Inngest function is straightforward
+  if retry/observability becomes worth it.
+- Notifications (after-hours SMS, escalation email). Blocked on SMTP +
+  SMS provider selection; tracked in PROGRESS.
+
+---
+
 ## [2026-05-07] — Settings restructure + phone number provisioning
 
 Cut Settings from 10 sections to **5**: Account · Business · Receptionist ·

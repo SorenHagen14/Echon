@@ -19,4 +19,6 @@ export const MODELS = {
   // Cheap + fast. Use for action-plan generation, post-call extraction —
   // anything where Sonnet is overkill. ~5x cheaper input than Sonnet.
   haiku: 'claude-haiku-4-5-20251001',
+  // Reserved for tasks where Haiku struggles. Not in use yet.
+  sonnet: 'claude-sonnet-4-6',
 } as const
