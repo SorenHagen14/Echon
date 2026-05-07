@@ -15,7 +15,11 @@ type Supa = Awaited<ReturnType<typeof createClient>>
  *
  * Skips when `business_name` is missing — the assistant can't be named yet.
  */
-export async function syncVapiAssistant(supabase: Supa, workspaceId: string): Promise<void> {
+export async function syncVapiAssistant(
+  supabase: Supa,
+  workspaceId: string,
+  opts: { throwOnError?: boolean } = {},
+): Promise<void> {
   console.log(
     '[voice-sync] called for workspace',
     workspaceId,
@@ -65,6 +69,10 @@ export async function syncVapiAssistant(supabase: Supa, workspaceId: string): Pr
     }
   } catch (e) {
     console.error('[voice-sync] vapi sync failed for workspace', workspaceId, String(e))
+    if (opts.throwOnError) {
+      throw new Error(e instanceof Error ? e.message : String(e))
+    }
+    // Onboarding callers swallow — wizard mustn't block on Vapi flakes.
   }
 }
 
@@ -126,6 +134,7 @@ export function buildAssistantConfig(
     recordingEnabled: Boolean(cfg.recording_enabled ?? true),
 
     speakingRate: (cfg.speaking_rate as 'slow' | 'normal' | 'fast' | null) ?? 'normal',
+    voiceSpeed: cfg.voice_speed != null ? Number(cfg.voice_speed) : 1.0,
     modelTier: (cfg.model_tier as 'fast' | 'balanced' | 'best' | null) ?? 'balanced',
     temperature: typeof cfg.temperature === 'number' ? Number(cfg.temperature)
       : cfg.temperature != null ? Number(cfg.temperature) : 0.7,

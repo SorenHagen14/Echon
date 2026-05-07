@@ -46,10 +46,15 @@ function parseEndCallPhrases(raw: FormDataEntryValue | null): string[] {
     .slice(0, 20)
 }
 
+export type VoicePersonaResult =
+  | { ok: true }
+  | { ok: false; reason: string; savedToDb: boolean }
+
 // Saves Settings → Receptionist → Voice & persona, then syncs the assistant
-// to Vapi. One action covers Basics + Advanced — the form posts every
-// field and the action just trusts it (validation + clamping below).
-export async function updateVoicePersona(formData: FormData): Promise<void> {
+// to Vapi. One action covers Basics + Advanced. Returns a result object so
+// the form can show the user whether the DB save and Vapi sync each
+// succeeded or failed independently.
+export async function updateVoicePersona(_prev: VoicePersonaResult | null, formData: FormData): Promise<VoicePersonaResult> {
   const { supabase, workspaceId } = await requireWorkspace()
 
   // Read current row so we can implement one-step undo on system prompt:
@@ -81,6 +86,7 @@ export async function updateVoicePersona(formData: FormData): Promise<void> {
     backchanneling_enabled: formData.get('backchanneling_enabled') === 'true',
     max_call_duration_sec: Math.round(clampNumber(formData.get('max_call_duration_sec'), 180, 900, 480)),
     silence_timeout_sec: Math.round(clampNumber(formData.get('silence_timeout_sec'), 3, 10, 5)),
+    voice_speed: clampNumber(formData.get('voice_speed'), 0.5, 2.0, 1.0),
 
     use_custom_system_prompt: useCustom,
     custom_system_prompt: useCustom ? newCustom : oldCustom,
@@ -97,16 +103,27 @@ export async function updateVoicePersona(formData: FormData): Promise<void> {
     .from('agent_configs')
     .update(updates)
     .eq('workspace_id', workspaceId)
-  if (error) throw new Error(`Voice settings save failed: ${error.message}`)
+  if (error) {
+    return { ok: false, reason: `Save failed: ${error.message}`, savedToDb: false }
+  }
 
-  // Best-effort Vapi sync — failures are logged but don't block the save.
+  // DB save succeeded; now push to Vapi. If this fails, the user needs to
+  // know — their Echon settings drifted from what's actually live on calls.
   try {
-    await syncVapiAssistant(supabase, workspaceId)
+    await syncVapiAssistant(supabase, workspaceId, { throwOnError: true })
   } catch (e) {
-    console.warn('[updateVoicePersona] Vapi sync failed', e)
+    const reason = e instanceof Error ? e.message : String(e)
+    console.error('[updateVoicePersona] Vapi sync failed', reason)
+    revalidatePath('/settings/voice')
+    return {
+      ok: false,
+      reason: `Saved to Echon, but Vapi sync failed: ${reason}`,
+      savedToDb: true,
+    }
   }
 
   revalidatePath('/settings/voice')
+  return { ok: true }
 }
 
 // One-step undo: swap `custom_system_prompt` ↔ `previous_custom_system_prompt`.
@@ -134,7 +151,7 @@ export async function revertSystemPrompt(): Promise<void> {
     .eq('workspace_id', workspaceId)
 
   try {
-    await syncVapiAssistant(supabase, workspaceId)
+    await syncVapiAssistant(supabase, workspaceId, { throwOnError: true })
   } catch (e) {
     console.warn('[revertSystemPrompt] Vapi sync failed', e)
   }

@@ -230,10 +230,15 @@ function buildVapiPayload(config: AssistantConfig) {
   if (typeof config.temperature === 'number') model.temperature = config.temperature
   if (typeof config.maxTokens === 'number') model.maxTokens = config.maxTokens
 
+  const voiceCfg: Record<string, unknown> = { provider: voice.provider, voiceId: voice.voiceId }
+  if (typeof config.voiceSpeed === 'number' && config.voiceSpeed !== 1) {
+    voiceCfg.speed = config.voiceSpeed
+  }
+
   const payload: Record<string, unknown> = {
     name: `${config.businessName} — ${config.agentName}`,
     model,
-    voice: { provider: voice.provider, voiceId: voice.voiceId },
+    voice: voiceCfg,
     firstMessage: config.greeting,
     recordingEnabled: config.recordingEnabled,
   }

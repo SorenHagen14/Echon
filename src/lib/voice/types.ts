@@ -36,6 +36,7 @@ export interface AssistantConfig {
   // Voice persona advanced controls — surfaced in Settings → Receptionist
   // → Voice & persona.
   speakingRate?: 'slow' | 'normal' | 'fast'
+  voiceSpeed?: number                         // TTS playback speed multiplier; 1.0 = default
   modelTier?: 'fast' | 'balanced' | 'best'   // maps to a specific Anthropic model
   temperature?: number                        // 0..1
   maxTokens?: number                          // per-turn output cap

@@ -149,6 +149,7 @@ async function renderSection(
             tone: ((cfg.tone as string | null) ?? 'friendly') as 'friendly' | 'professional' | 'direct',
             speaking_rate: ((cfg.speaking_rate as string | null) ?? 'normal') as 'slow' | 'normal' | 'fast',
             recording_enabled: Boolean(cfg.recording_enabled ?? true),
+            voice_speed: cfg.voice_speed != null ? Number(cfg.voice_speed) : 1.0,
             use_custom_system_prompt: Boolean(cfg.use_custom_system_prompt),
             custom_system_prompt: (cfg.custom_system_prompt as string | null) ?? null,
             previous_custom_system_prompt: (cfg.previous_custom_system_prompt as string | null) ?? null,

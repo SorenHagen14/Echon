@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import { revertSystemPrompt, updateVoicePersona } from '../voice-actions'
+import { useActionState, useState } from 'react'
+import { revertSystemPrompt, updateVoicePersona, type VoicePersonaResult } from '../voice-actions'
 
 export type VoicePersonaConfig = {
   agent_name: string | null
   greeting: string | null
   tone: 'friendly' | 'professional' | 'direct'
   speaking_rate: 'slow' | 'normal' | 'fast'
+  voice_speed: number
   recording_enabled: boolean
   use_custom_system_prompt: boolean
   custom_system_prompt: string | null
@@ -32,6 +33,11 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
   const [customPrompt, setCustomPrompt] = useState(
     config.custom_system_prompt ?? config.generated_system_prompt_preview ?? '',
   )
+  const [voiceSpeed, setVoiceSpeed] = useState(config.voice_speed ?? 1.0)
+  const [state, formAction, pending] = useActionState<VoicePersonaResult | null, FormData>(
+    updateVoicePersona,
+    null,
+  )
 
   // Persist the toggle so power users don't have to reflip every visit.
   if (typeof window !== 'undefined') {
@@ -53,7 +59,7 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
   }
 
   return (
-    <form action={updateVoicePersona} className="space-y-8">
+    <form action={formAction} className="space-y-8">
       {/* ---- BASICS ----------------------------------------------------- */}
       <FormCard>
         <CardTitle>Basics</CardTitle>
@@ -86,12 +92,27 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
           </select>
         </Field>
 
-        <Field label="Speaking rate">
-          <select name="speaking_rate" defaultValue={config.speaking_rate} className={inputCls}>
-            <option value="slow">Slow</option>
-            <option value="normal">Normal</option>
-            <option value="fast">Fast</option>
-          </select>
+        <Field
+          label={`Voice speed — ${Math.round(voiceSpeed * 100)}%`}
+          hint="How fast the agent talks. 100% = default. 110-120% sounds noticeably brisker without getting choppy."
+        >
+          <input
+            type="range"
+            name="voice_speed"
+            min={0.7}
+            max={1.3}
+            step={0.05}
+            value={voiceSpeed}
+            onChange={(e) => setVoiceSpeed(Number(e.currentTarget.value))}
+            className="w-full"
+          />
+          {/* Hidden because the legacy speaking_rate column is still in the
+              prompt; we derive its value from the slider. */}
+          <input
+            type="hidden"
+            name="speaking_rate"
+            value={voiceSpeed < 0.95 ? 'slow' : voiceSpeed > 1.05 ? 'fast' : 'normal'}
+          />
         </Field>
 
         <Field label="Recording">
@@ -285,13 +306,27 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
         </>
       )}
 
+      {/* ---- RESULT BANNER -------------------------------------------- */}
+      {state && state.ok && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+          Saved and synced to Vapi.
+        </div>
+      )}
+      {state && !state.ok && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          <p className="font-semibold">{state.savedToDb ? 'Partial save' : 'Save failed'}</p>
+          <p className="mt-0.5 text-xs">{state.reason}</p>
+        </div>
+      )}
+
       {/* ---- SAVE ------------------------------------------------------ */}
       <div className="flex justify-end">
         <button
           type="submit"
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+          disabled={pending}
+          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
-          Save changes
+          {pending ? 'Saving…' : 'Save changes'}
         </button>
       </div>
     </form>
