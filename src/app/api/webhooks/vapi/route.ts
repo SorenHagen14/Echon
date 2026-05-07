@@ -35,10 +35,38 @@ function verifySecret(headerValue: string | null): boolean {
 }
 
 export async function POST(req: Request) {
-  const secretHeader =
-    req.headers.get('x-vapi-secret') ?? req.headers.get('x-vapi-signature')
+  // Try every plausible header name Vapi might use across SDK versions.
+  const candidateHeaders = [
+    'x-vapi-secret',
+    'x-vapi-signature',
+    'x-vapi-server-secret',
+    'authorization',
+  ]
+  let secretHeader: string | null = null
+  for (const name of candidateHeaders) {
+    const v = req.headers.get(name)
+    if (v) {
+      secretHeader = name === 'authorization' ? v.replace(/^Bearer\s+/i, '') : v
+      break
+    }
+  }
 
   if (!verifySecret(secretHeader)) {
+    // Diagnostic for the still-getting-401 case. Logs header NAMES only
+    // (not values) plus a coarse fingerprint so we can spot length /
+    // character-class mismatches without leaking the secret.
+    const headerNames: string[] = []
+    req.headers.forEach((_v, k) => headerNames.push(k))
+    const expected = process.env.VAPI_WEBHOOK_SECRET ?? ''
+    console.warn('[vapi-webhook] 401 unauthorized', {
+      headerNames,
+      envSet: expected.length > 0,
+      envLen: expected.length,
+      receivedHeaderLen: secretHeader?.length ?? 0,
+      // First 3 chars of each, for an at-a-glance "is this even close" check
+      envPrefix: expected.slice(0, 3),
+      receivedPrefix: secretHeader?.slice(0, 3) ?? null,
+    })
     return new NextResponse('Unauthorized', { status: 401 })
   }
 
