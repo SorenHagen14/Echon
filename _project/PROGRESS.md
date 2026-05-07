@@ -244,16 +244,21 @@ Still to land (non-blocking for Phase 6 dashboard work):
   - `book_appointment` — creates appointment + GCal event
   - `escalate_to_human` — fires SMS/push to on-call; returns ack
   - `transfer_call` — Vapi live transfer to on-call number
-- [x] Webhook DB writes (2026-05-07): upserts `calls` row on
-      `status-update` (workspace resolved via `phone_numbers.e164_number
-      = callee_phone`, customer linked via `customers.primary_phone`),
-      inserts `call_events` per event, attaches the call to a case via a
-      service-role variant of `ensureCaseForCall`. `end-of-call-report`
-      writes `ended_at`, `duration_sec`, `recording_url`, `transcript`,
-      `cost_cents`, and the raw payload. Outcome stays at `processing`
-      until the Inngest summarization job lands. Service-role client at
-      `src/lib/supabase/service.ts`; env var
-      `SUPABASE_SERVICE_ROLE_KEY` required.
+- [x] Webhook DB writes (2026-05-07, **verified end-to-end with a real
+      Vapi call**): upserts `calls` row on `status-update` (workspace
+      resolved via `phone_numbers.e164_number = callee_phone`, customer
+      linked via `customers.primary_phone`), inserts `call_events` per
+      event, attaches the call to a case via a service-role variant of
+      `ensureCaseForCall`. `end-of-call-report` writes `ended_at`,
+      `duration_sec`, `recording_url`, `transcript`, `cost_cents`, and
+      the raw payload. Outcome stays at `processing` until the Inngest
+      summarization job lands. Service-role client at
+      `src/lib/supabase/service.ts`. Required env vars:
+      `SUPABASE_SERVICE_ROLE_KEY`, `VAPI_WEBHOOK_SECRET`. Vapi-side
+      config: Server URL = `<domain>/api/webhooks/vapi` + custom HTTP
+      header `x-vapi-secret: <same value as VAPI_WEBHOOK_SECRET>` (Vapi
+      doesn't have a built-in "Server URL Secret" field — you add it
+      via the Headers section).
 - [ ] Inngest job: post-call processing
   - Anthropic Sonnet extracts structured fields from transcript
   - Updates `customers`, writes `calls.summary` + `outcome`, links

@@ -57,16 +57,23 @@ export async function middleware(request: NextRequest) {
 
   const { data: workspace } = await supabase
     .from('workspaces')
-    .select('onboarding_step, workspace_settings ( onboarding_completed )')
+    .select('onboarding_step, scheduled_purge_at, workspace_settings ( onboarding_completed )')
     .eq('owner_id', user.id)
     .single<{
       onboarding_step: number
+      scheduled_purge_at: string | null
       workspace_settings: { onboarding_completed: boolean } | null
     }>()
 
   // Defensive: if workspace lookup fails, let the page handle rendering an
   // error instead of looping the user through redirects.
   if (!workspace) return supabaseResponse
+
+  // Soft-deleted workspace → lock the user out of every app/onboarding route
+  // and route them to the recovery page until they restore or the purge runs.
+  if (workspace.scheduled_purge_at && (isAppPath || isOnboardingPath)) {
+    return NextResponse.redirect(new URL('/deletion-pending', request.url))
+  }
 
   const onboardingStep = workspace.onboarding_step
   const completed = workspace.workspace_settings?.onboarding_completed ?? false

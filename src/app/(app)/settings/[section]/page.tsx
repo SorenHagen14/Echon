@@ -10,6 +10,7 @@ import { TeamSection, type Operator } from '../_components/TeamSection'
 import { PhoneNumberSection, type PhoneNumberRow } from '../_components/PhoneNumberSection'
 import { ScheduleSettingsForm } from '../../schedule/_components/ScheduleSettingsForm'
 import { AccountSection } from '../_components/AccountSection'
+import { DangerZone } from '../_components/DangerZone'
 
 export default async function SettingsSectionPage({
   params,
@@ -60,13 +61,16 @@ async function renderSection(
         .eq('id', userId)
         .single()
       return (
-        <AccountSection
-          firstName={profile?.first_name ?? ''}
-          lastName={profile?.last_name ?? ''}
-          displayName={profile?.display_name ?? ''}
-          email={userEmail}
-          avatarUrl={profile?.avatar_url ?? null}
-        />
+        <div className="space-y-10">
+          <AccountSection
+            firstName={profile?.first_name ?? ''}
+            lastName={profile?.last_name ?? ''}
+            displayName={profile?.display_name ?? ''}
+            email={userEmail}
+            avatarUrl={profile?.avatar_url ?? null}
+          />
+          <DangerZone />
+        </div>
       )
     }
     case 'notifications':

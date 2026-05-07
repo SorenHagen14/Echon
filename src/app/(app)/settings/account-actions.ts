@@ -152,3 +152,55 @@ function extractStoragePath(publicUrl: string): string | null {
   if (idx === -1) return null
   return publicUrl.slice(idx + marker.length)
 }
+
+// 14 days, expressed in milliseconds. The window the owner has to cancel
+// the deletion before the daily pg_cron job purges the workspace.
+const DELETION_GRACE_MS = 14 * 24 * 60 * 60 * 1000
+const DELETE_CONFIRM_PHRASE = 'DELETE my workspace'
+
+export async function scheduleWorkspaceDeletion(formData: FormData): Promise<AccountActionResult> {
+  const { supabase, user } = await requireUser()
+
+  const phrase = String(formData.get('confirm_phrase') ?? '').trim()
+  if (phrase !== DELETE_CONFIRM_PHRASE) {
+    return { ok: false, error: `Type "${DELETE_CONFIRM_PHRASE}" exactly to confirm.` }
+  }
+
+  const reason = trimToNull(formData.get('reason'), 500)
+
+  const now = new Date()
+  const purgeAt = new Date(now.getTime() + DELETION_GRACE_MS)
+
+  const { error } = await supabase
+    .from('workspaces')
+    .update({
+      deleted_at: now.toISOString(),
+      scheduled_purge_at: purgeAt.toISOString(),
+      deletion_reason: reason,
+    })
+    .eq('owner_id', user.id)
+    .is('deleted_at', null)
+
+  if (error) return { ok: false, error: error.message }
+
+  await supabase.auth.signOut()
+  redirect('/login?deletion=scheduled')
+}
+
+export async function cancelWorkspaceDeletion(): Promise<void> {
+  const { supabase, user } = await requireUser()
+
+  const { error } = await supabase
+    .from('workspaces')
+    .update({
+      deleted_at: null,
+      scheduled_purge_at: null,
+      deletion_reason: null,
+    })
+    .eq('owner_id', user.id)
+
+  if (error) throw new Error(`Could not cancel deletion: ${error.message}`)
+
+  revalidatePath('/', 'layout')
+  redirect('/dashboard')
+}
