@@ -1,12 +1,8 @@
 'use client'
 
 import { useActionState, useState } from 'react'
-import {
-  DEFAULT_NON_TRIGGERS,
-  DEFAULT_TRIGGERS,
-  updateEscalationRules,
-  type EscalationResult,
-} from '../escalation-actions'
+import { updateEscalationRules, type EscalationResult } from '../escalation-actions'
+import { DEFAULT_NON_TRIGGERS, DEFAULT_TRIGGERS } from './escalation-defaults'
 
 type Props = {
   initialTriggers: string[]

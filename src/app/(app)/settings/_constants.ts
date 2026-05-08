@@ -34,6 +34,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     label: 'Receptionist',
     items: [
       { slug: 'voice',             label: 'Voice & persona' },
+      { slug: 'role',              label: 'Role & capabilities' },
       { slug: 'after-hours',       label: 'After-hours' },
       { slug: 'escalation',        label: 'Escalation' },
     ],
@@ -57,7 +58,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
 export type SettingsSectionSlug =
   | 'profile' | 'notifications'
   | 'location' | 'trades' | 'hours' | 'services' | 'schedule' | 'team'
-  | 'voice' | 'after-hours' | 'escalation'
+  | 'voice' | 'role' | 'after-hours' | 'escalation'
   | 'phone-number' | 'calendar' | 'other-integrations'
   | 'plan'
   | 'dev'

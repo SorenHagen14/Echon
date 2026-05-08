@@ -93,10 +93,10 @@ export function CallDetailBody({ call }: { call: CallDetail }) {
           <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             {Array.isArray(call.transcript) && call.transcript.length > 0 ? (
               <ol className="space-y-3">
-                {call.transcript.map((turn: TranscriptTurn, i: number) => (
+                {call.transcript.filter((t) => t.role !== 'system').map((turn: TranscriptTurn, i: number) => (
                   <li key={i} className="text-sm">
                     <div className="mb-0.5 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                      {turn.role === 'assistant' ? 'Agent' : turn.role === 'user' ? 'Caller' : turn.role}
+                      {turn.role === 'assistant' ? (call.agent_name ?? 'Bot') : turn.role === 'user' ? 'Caller' : turn.role}
                     </div>
                     <p className="text-zinc-800 dark:text-zinc-200">{turn.message}</p>
                   </li>

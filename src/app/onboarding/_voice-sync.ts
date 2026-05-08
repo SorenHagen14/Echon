@@ -171,5 +171,8 @@ export function buildAssistantConfig(
     escalationNonTriggers: Array.isArray(cfg.escalation_non_triggers)
       ? (cfg.escalation_non_triggers as string[]).filter((s) => typeof s === 'string')
       : [],
+    agentCapabilities: Array.isArray(cfg.agent_capabilities)
+      ? (cfg.agent_capabilities as string[]).filter((s) => typeof s === 'string')
+      : ['booking', 'messaging', 'faq'],
   }
 }

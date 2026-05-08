@@ -121,36 +121,28 @@ function ConversionBar({ numerator, denominator, accent }: { numerator: number; 
 }
 
 function DeltaBadge({ current, prior }: { current: number; prior: number | null }) {
-  if (prior === null) return null
-  // Special-case: prior is zero. Showing "+∞%" reads as wrong; just say "new".
-  if (prior === 0) {
-    if (current === 0) return null
-    return (
-      <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-        new
-      </span>
-    )
-  }
+  // No prior comparison available (all-time, or prior was zero so a percent
+  // can't be computed) → render nothing. The raw value on the tile is the signal.
+  if (prior === null || prior === 0) return null
+
   const delta = ((current - prior) / prior) * 100
   const rounded = Math.round(delta)
-  if (rounded === 0) {
-    return (
-      <span className="inline-flex items-center gap-0.5 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-        flat
-      </span>
-    )
-  }
-  const positive = rounded > 0
+
+  // Color encodes direction: green up, red down, zinc flat.
+  const tone =
+    rounded > 0
+      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+      : rounded < 0
+        ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
+
+  const sign = rounded > 0 ? '+' : rounded < 0 ? '−' : ''
   return (
     <span
-      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
-        positive
-          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
-      }`}
+      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${tone}`}
       title={`Compared to the prior equivalent window (${prior} → ${current})`}
     >
-      {positive ? '↑' : '↓'} {Math.abs(rounded)}%
+      {sign}{Math.abs(rounded)}%
     </span>
   )
 }

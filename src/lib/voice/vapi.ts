@@ -256,6 +256,17 @@ function needsRecordingDisclosure(state: string | null | undefined, recording: b
   return TWO_PARTY_STATES.has(state.toUpperCase())
 }
 
+function resolveCapabilities(config: AssistantConfig): { canBook: boolean; canMessage: boolean; canFaq: boolean } {
+  const caps = config.agentCapabilities && config.agentCapabilities.length > 0
+    ? config.agentCapabilities
+    : ['booking', 'messaging', 'faq']
+  return {
+    canBook: caps.includes('booking'),
+    canMessage: caps.includes('messaging'),
+    canFaq: caps.includes('faq'),
+  }
+}
+
 export function buildSystemPrompt(config: AssistantConfig): string {
   const profile = tradeProfile(config)
   const services = config.services.length === 0
@@ -303,14 +314,42 @@ export function buildSystemPrompt(config: AssistantConfig): string {
     return parts.join(' ')
   })()
 
+  const { canBook, canMessage, canFaq } = resolveCapabilities(config)
+
+  const jobParts: string[] = []
+  if (canBook) jobParts.push('book service appointments and route quote requests')
+  if (canMessage) jobParts.push('take messages and create cases for the team to follow up')
+  if (canFaq) jobParts.push('answer questions about services, pricing, and hours')
+  const jobSummary = jobParts.length > 0
+    ? `Your job on this call: ${jobParts.join('; ')}.`
+    : 'Your job on this call: collect the caller\'s name and number and escalate everything to the team.'
+
+  const outcomeLines: string[] = []
+  if (canBook) {
+    outcomeLines.push('• BOOK when: the caller agrees to a specific date+time you\'ve offered for a service marked "bookable directly" below. State the slot back once to confirm.')
+    outcomeLines.push('• QUOTE when: full system replacement, commercial property, insurance claim, or a service marked "quote required". Tell them a tech will visit/call to estimate and capture address + best contact time.')
+  }
+  if (canMessage) {
+    outcomeLines.push('• MESSAGE when: you\'ve collected the info the team needs and the next step is a human callback — after hours, or when the caller\'s request falls outside what you can book. Take name + callback number + one-sentence reason + best window.')
+  }
+  if (!canBook && !canMessage) {
+    outcomeLines.push('• MESSAGE (minimal): capture name + callback number + one sentence on why they called, then tell them the team will reach out. Do not attempt to book or resolve the request.')
+  }
+  outcomeLines.push('• ESCALATE when ANY of the conditions in "ESCALATE IMMEDIATELY" below is true. Promise a callback within a stated window.')
+
+  const faqNote = canFaq
+    ? ''
+    : '\nFAQ NOTE: Do not try to answer questions about pricing, availability, or services — tell the caller "I\'ll have someone from the team reach out who can answer that" and take a message.\n'
+
   return `You are ${config.agentName}, the AI receptionist for ${config.businessName}, a ${profile.trade} business.
 
 YOUR JOB
-Answer inbound calls. Most callers are existing customers with a problem, prospects asking for pricing or scheduling, or someone confirming an appointment. Decide quickly which one you're talking to, collect the information the team needs, and end with a clear next step (booked / quoted / escalated / message taken).
+${jobSummary}
+Answer inbound calls. Most callers are existing customers with a problem, prospects asking for pricing or scheduling, or someone confirming an appointment. Decide quickly which one you're talking to, collect the information the team needs, and end with a clear next step.
 
 GREETING
 Open with: "${config.greeting}"
-${recordingDisclosure}
+${recordingDisclosure}${faqNote}
 INFORMATION TO COLLECT (only ask for what's missing — never re-ask)
 1. Caller's name.
 2. Phone number to reach them on (if it differs from caller ID).
@@ -320,10 +359,7 @@ INFORMATION TO COLLECT (only ask for what's missing — never re-ask)
 6. Preferred time window if booking.
 
 OUTCOME — pick exactly one
-• BOOK when: the caller agrees to a specific date+time you've offered for a service that's marked "bookable directly" below. State the slot back once to confirm.
-• QUOTE when: full system replacement, commercial property, insurance claim, or a service marked "quote required". Tell them a tech will visit/call to estimate and capture address + best contact time.
-• ESCALATE when ANY of the conditions in "ESCALATE IMMEDIATELY" below is true. Promise a callback within a stated window.
-• MESSAGE when: it's outside business hours and not an emergency. Take name + callback number + one-sentence reason + best window.
+${outcomeLines.join('\n')}
 
 ESCALATE IMMEDIATELY when any of these is true:
 ${escalateBlock}

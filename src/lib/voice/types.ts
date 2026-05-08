@@ -66,6 +66,11 @@ export interface AssistantConfig {
   // and dropped verbatim into the system prompt.
   escalationTriggers?: string[]
   escalationNonTriggers?: string[]
+
+  // What the agent is allowed to do on a call.
+  // Values: 'booking' | 'messaging' | 'faq'
+  // Default (empty/null) = all three enabled.
+  agentCapabilities?: string[]
 }
 
 export interface AvailableNumber {

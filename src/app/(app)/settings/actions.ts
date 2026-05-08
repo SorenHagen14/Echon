@@ -51,6 +51,16 @@ function priorityValue(input: FormDataEntryValue | null): number {
   return n
 }
 
+const ACCESS_TIERS = ['full_access', 'case_resolver', 'view_only'] as const
+type AccessTier = typeof ACCESS_TIERS[number]
+
+function accessTierValue(input: FormDataEntryValue | null): AccessTier {
+  if (typeof input === 'string' && (ACCESS_TIERS as readonly string[]).includes(input)) {
+    return input as AccessTier
+  }
+  return 'view_only'
+}
+
 function operatorPayloadFromForm(formData: FormData) {
   const name = formData.get('name')
   if (typeof name !== 'string' || !name.trim()) throw new Error('Name required')
@@ -59,6 +69,8 @@ function operatorPayloadFromForm(formData: FormData) {
     email: nullableString(formData.get('email')),
     phone: nullableString(formData.get('phone')),
     color: normalizeColor(formData.get('color')),
+    role_label: nullableString(formData.get('role_label')),
+    access_tier: accessTierValue(formData.get('access_tier')),
     is_cs_rep: checkboxBool(formData, 'is_cs_rep'),
     is_technician: checkboxBool(formData, 'is_technician'),
     is_manager: checkboxBool(formData, 'is_manager'),

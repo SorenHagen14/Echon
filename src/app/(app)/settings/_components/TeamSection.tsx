@@ -1,12 +1,16 @@
 import type { BusinessType } from '@/app/onboarding/_constants'
 import { OperatorForm } from './OperatorForm'
 
+export type AccessTier = 'full_access' | 'case_resolver' | 'view_only'
+
 export type Operator = {
   id: string
   name: string
   email: string | null
   phone: string | null
   color: string
+  role_label: string | null
+  access_tier: AccessTier
   is_cs_rep: boolean
   is_technician: boolean
   is_manager: boolean
@@ -14,6 +18,12 @@ export type Operator = {
   priority_tech: number
   priority_manager: number
   created_at: string
+}
+
+export const ACCESS_TIER_META: Record<AccessTier, { label: string; blurb: string }> = {
+  full_access:   { label: 'Full Access',    blurb: 'Manage everything — settings, team, billing, all cases.' },
+  case_resolver: { label: 'Case Resolver',  blurb: 'Resolve cases, edit customer info, manage appointments.' },
+  view_only:     { label: 'View Only',      blurb: 'See assigned cases and customer info. No edits.' },
 }
 
 export type RoleKey = 'is_cs_rep' | 'is_technician' | 'is_manager'
@@ -71,7 +81,7 @@ export function TeamSection({
                           {(op.email || op.phone) && (
                             <span>{[op.email, op.phone].filter(Boolean).join(' · ')}</span>
                           )}
-                          {tags.length > 0 && (
+                          {(tags.length > 0 || op.role_label) && (
                             <span className="flex flex-wrap gap-1">
                               {tags.map((r) => (
                                 <span
@@ -81,8 +91,24 @@ export function TeamSection({
                                   {r.label}
                                 </span>
                               ))}
+                              {op.role_label && (
+                                <span className="inline-flex rounded-full bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+                                  {op.role_label}
+                                </span>
+                              )}
                             </span>
                           )}
+                          <span
+                            className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                              op.access_tier === 'full_access'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                : op.access_tier === 'case_resolver'
+                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                  : 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'
+                            }`}
+                          >
+                            {ACCESS_TIER_META[op.access_tier].label}
+                          </span>
                         </div>
                       </div>
                       <span className="text-xs text-zinc-400 dark:text-zinc-600">Edit</span>

@@ -26,7 +26,7 @@ export default async function SettingsSectionPage({
   const { section } = await params
   if (!SETTINGS_SECTION_SLUGS.includes(section as SettingsSectionSlug)) notFound()
   const slug = section as SettingsSectionSlug
-  const meta = findSectionMeta(slug)!
+  const meta = findSectionMeta(slug) ?? { label: 'Dev tools', group: 'Dev' }
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -179,7 +179,7 @@ async function renderSection(
       const [{ data: operators }, { data: wsTeam }] = await Promise.all([
         supabase
           .from('operators')
-          .select('id, name, email, phone, color, is_cs_rep, is_technician, is_manager, priority_cs, priority_tech, priority_manager, created_at')
+          .select('id, name, email, phone, color, role_label, access_tier, is_cs_rep, is_technician, is_manager, priority_cs, priority_tech, priority_manager, created_at')
           .eq('workspace_id', workspaceId)
           .order('created_at', { ascending: true }),
         supabase
@@ -203,6 +203,20 @@ async function renderSection(
     }
 
     // ---- Receptionist ----------------------------------------------------
+    case 'role': {
+      const { data: cfg } = await supabase
+        .from('agent_configs')
+        .select('agent_capabilities')
+        .eq('workspace_id', workspaceId)
+        .single()
+      const { RoleSection } = await import('../_components/RoleSection')
+      const caps = Array.isArray(cfg?.agent_capabilities)
+        ? (cfg!.agent_capabilities as string[]).filter((v): v is 'booking' | 'messaging' | 'faq' =>
+            ['booking', 'messaging', 'faq'].includes(v))
+        : ['booking', 'messaging', 'faq'] as ('booking' | 'messaging' | 'faq')[]
+      return <RoleSection initial={caps} />
+    }
+
     case 'voice': {
       const [cfgRes, wsRes] = await Promise.all([
         supabase.from('agent_configs').select('*').eq('workspace_id', workspaceId).single(),

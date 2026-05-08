@@ -2,7 +2,10 @@
 
 import { useState } from 'react'
 import { createOperator, deleteOperator, updateOperator } from '../actions'
-import type { Operator, RoleDef } from './TeamSection'
+import type { AccessTier, Operator, RoleDef } from './TeamSection'
+import { ACCESS_TIER_META } from './TeamSection'
+
+const ACCESS_TIER_ORDER: AccessTier[] = ['view_only', 'case_resolver', 'full_access']
 
 const PRESET_COLORS = [
   '#ef4444', '#f97316', '#eab308', '#22c55e',
@@ -24,6 +27,7 @@ export function OperatorForm({ operator, availableRoles }: { operator?: Operator
   const [isCs, setIsCs] = useState(operator?.is_cs_rep ?? false)
   const [isTech, setIsTech] = useState(operator?.is_technician ?? false)
   const [isMgr, setIsMgr] = useState(operator?.is_manager ?? false)
+  const [accessTier, setAccessTier] = useState<AccessTier>(operator?.access_tier ?? 'view_only')
 
   const roleState: Record<string, [boolean, (v: boolean) => void]> = {
     is_cs_rep:     [isCs, setIsCs],
@@ -45,6 +49,12 @@ export function OperatorForm({ operator, availableRoles }: { operator?: Operator
         <Field name="name" label="Name" defaultValue={operator?.name} required placeholder="e.g. Mike Reyes" />
         <Field name="email" label="Email" type="email" defaultValue={operator?.email ?? ''} placeholder="mike@…" />
         <Field name="phone" label="Phone" type="tel" defaultValue={operator?.phone ?? ''} placeholder="+1 (555) 123-4567" />
+        <Field
+          name="role_label"
+          label="Custom role (optional)"
+          defaultValue={operator?.role_label ?? ''}
+          placeholder="e.g. Dispatcher, Owner, Foreman"
+        />
       </div>
 
       {/* Color */}
@@ -91,6 +101,36 @@ export function OperatorForm({ operator, availableRoles }: { operator?: Operator
             )
           })}
         </div>
+      </div>
+
+      {/* Access tier — what they can see/do inside Echon */}
+      <div>
+        <span className="mb-1 block text-xs text-zinc-600 dark:text-zinc-400">Access</span>
+        <input type="hidden" name="access_tier" value={accessTier} />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {ACCESS_TIER_ORDER.map((tier) => {
+            const meta = ACCESS_TIER_META[tier]
+            const selected = accessTier === tier
+            return (
+              <button
+                key={tier}
+                type="button"
+                onClick={() => setAccessTier(tier)}
+                className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                  selected
+                    ? 'border-zinc-900 bg-zinc-50 dark:border-white dark:bg-zinc-800'
+                    : 'border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/50'
+                }`}
+              >
+                <span className="block font-semibold text-zinc-900 dark:text-white">{meta.label}</span>
+                <span className="mt-0.5 block text-[11px] text-zinc-500 dark:text-zinc-400">{meta.blurb}</span>
+              </button>
+            )
+          })}
+        </div>
+        <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+          Login-based access enforcement is coming. Today this is a label only.
+        </p>
       </div>
 
       {/* Advanced — per-role priority */}

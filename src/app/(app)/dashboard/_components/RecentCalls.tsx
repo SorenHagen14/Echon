@@ -1,5 +1,5 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import { CustomerLink } from '@/app/_components/customer-profile/CustomerLink'
 import { CallLink } from '@/app/_components/calls/CallLink'
 
 type CallRow = {
@@ -8,7 +8,6 @@ type CallRow = {
   duration_sec: number | null
   outcome: string
   caller_phone: string | null
-  summary: string | null
   customer: { id: string; name: string | null } | null
   appointments: { scheduled_for: string; service_type: string | null }[] | null
 }
@@ -62,13 +61,6 @@ function formatRelativeTime(iso: string): string {
   return `${days}d ago`
 }
 
-function formatDuration(sec: number | null): string {
-  if (!sec) return '—'
-  const m = Math.floor(sec / 60)
-  const s = sec % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
-
 function formatPhone(e164: string | null): string {
   if (!e164) return 'Unknown'
   const digits = e164.replace(/\D/g, '')
@@ -94,23 +86,14 @@ function formatAppointment(iso: string): string {
   return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${time}`
 }
 
-// Split "• line one\n• line two" (or plain lines) into trimmed bullet lines.
-function summaryLines(summary: string | null): string[] {
-  if (!summary) return []
-  return summary
-    .split('\n')
-    .map((l) => l.replace(/^[•\-*]\s*/, '').trim())
-    .filter(Boolean)
-}
-
 export async function RecentCalls({ workspaceId }: { workspaceId: string }) {
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('calls')
-    .select('id, started_at, duration_sec, outcome, caller_phone, summary, customer:customers(id, name), appointments(scheduled_for, service_type)')
+    .select('id, started_at, duration_sec, outcome, caller_phone, customer:customers(id, name), appointments(scheduled_for, service_type)')
     .eq('workspace_id', workspaceId)
     .order('started_at', { ascending: false })
-    .limit(10)
+    .limit(5)
 
   if (error) {
     return (
@@ -127,14 +110,9 @@ export async function RecentCalls({ workspaceId }: { workspaceId: string }) {
   if (calls.length === 0) {
     return (
       <Section title="Recent calls">
-        <div className="rounded-md border border-dashed border-zinc-300 bg-white px-6 py-10 text-center dark:border-zinc-800 dark:bg-zinc-900">
-          <p className="text-sm font-medium text-zinc-900 dark:text-white">
-            Your number is live
-          </p>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            We&apos;ll show calls here as they come in.
-          </p>
-        </div>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          We&apos;ll show calls here as they come in.
+        </p>
       </Section>
     )
   }

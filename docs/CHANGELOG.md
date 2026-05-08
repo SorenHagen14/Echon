@@ -4,6 +4,36 @@ All meaningful changes to the project are logged here.
 
 ---
 
+## [2026-05-08] — Custom operator role labels + access tiers (data-only)
+
+Two new columns on `operators` (migration 021):
+- `role_label text` — free-text custom role, displayed as a pill
+  alongside the eligibility-derived role pills. Lets owners label a
+  person as e.g. "Dispatcher" or "Foreman" without it being a real role
+  type for routing.
+- `access_tier text not null default 'view_only'` — planned permission
+  level. Three tiers, friendly names:
+  - **Full Access** (`full_access`) — manager/owner. Settings, team,
+    billing, all cases.
+  - **Case Resolver** (`case_resolver`) — CSR. Resolve cases, edit
+    customer info, manage appointments. No settings/billing/team.
+  - **View Only** (`view_only`) — tech. Read-only on assigned cases +
+    customer info. Default for new operators.
+
+This is **data-only**. No RLS or app-layer enforcement is wired yet —
+the column is captured and displayed, that's it. Real enforcement waits
+on the role-based workspace access feature (login invites + RLS).
+
+### Holidays
+- New US holiday quick-add chip set (Memorial Day, July 4, Labor Day,
+  Thanksgiving, Christmas Eve / Day, NYE/NYD). Custom date picker.
+- Voice prompt now injects `HOLIDAYS — CLOSED ALL DAY` with the next 12
+  upcoming dates (past auto-filtered) so the agent can say "we're closed
+  today for {label}".
+- Dropped Juneteenth from defaults.
+
+---
+
 ## [2026-05-08] — Settings → Hours and Services & pricing
 
 Two more settings sections come out of placeholder. Both write to
