@@ -37,7 +37,7 @@ export async function syncVapiAssistant(
 
   const [cfgRes, wsRes] = await Promise.all([
     supabase.from('agent_configs').select('*').eq('workspace_id', workspaceId).single(),
-    supabase.from('workspaces').select('business_type, business_type_other').eq('id', workspaceId).single(),
+    supabase.from('workspaces').select('business_type, business_type_other, additional_trades').eq('id', workspaceId).single(),
   ])
   const { data: cfg, error } = cfgRes
 
@@ -78,7 +78,11 @@ export async function syncVapiAssistant(
 
 export function buildAssistantConfig(
   cfg: Record<string, unknown>,
-  workspace: { business_type?: string | null; business_type_other?: string | null } | null = null,
+  workspace: {
+    business_type?: string | null
+    business_type_other?: string | null
+    additional_trades?: string[] | null
+  } | null = null,
 ): AssistantConfig {
   const businessName = String(cfg.business_name ?? 'our shop')
   const agentName = String(cfg.agent_name ?? 'John')
@@ -122,6 +126,14 @@ export function buildAssistantConfig(
     systemPromptAddendum: (cfg.system_prompt_addendum as string | null) ?? null,
     services,
     businessHours,
+    holidays: Array.isArray(cfg.holidays)
+      ? (cfg.holidays as Array<Record<string, unknown>>)
+          .map((h) => ({
+            date: typeof h.date === 'string' ? h.date : '',
+            label: typeof h.label === 'string' ? h.label : '',
+          }))
+          .filter((h) => /^\d{4}-\d{2}-\d{2}$/.test(h.date))
+      : [],
     timezone: (cfg.timezone as string | null) ?? 'America/New_York',
     afterHoursMode,
     oncallNumbers: oncallList,
@@ -151,5 +163,13 @@ export function buildAssistantConfig(
         : null,
     businessType: workspace?.business_type ?? null,
     businessTypeOther: workspace?.business_type_other ?? null,
+    additionalTrades: Array.isArray(workspace?.additional_trades) ? workspace!.additional_trades! : [],
+    businessState: (cfg.business_state as string | null) ?? null,
+    escalationTriggers: Array.isArray(cfg.escalation_triggers)
+      ? (cfg.escalation_triggers as string[]).filter((s) => typeof s === 'string')
+      : [],
+    escalationNonTriggers: Array.isArray(cfg.escalation_non_triggers)
+      ? (cfg.escalation_non_triggers as string[]).filter((s) => typeof s === 'string')
+      : [],
   }
 }

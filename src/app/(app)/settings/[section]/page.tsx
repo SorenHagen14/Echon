@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import {
   SETTINGS_SECTION_SLUGS,
   SUPPORT_CONTACT,
+  ECHON_ADMIN_EMAIL,
   findSectionMeta,
   type SettingsSectionSlug,
 } from '../_constants'
@@ -12,7 +13,7 @@ import { ScheduleSettingsForm } from '../../schedule/_components/ScheduleSetting
 import { AccountSection } from '../_components/AccountSection'
 import { DangerZone } from '../_components/DangerZone'
 import { HoursSection } from '../_components/HoursSection'
-import { buildInitialHours } from '../_components/hours-shape'
+import { buildInitialHours, normalizeHolidays } from '../_components/hours-shape'
 import { ServicesSection } from '../_components/ServicesSection'
 import { normalizeServices } from '../_components/services-shape'
 import { BUSINESS_TYPE_OPTIONS, getServiceCatalog, type BusinessType } from '@/app/onboarding/_constants'
@@ -87,10 +88,41 @@ async function renderSection(
       )
 
     // ---- Business --------------------------------------------------------
+    case 'location': {
+      const { data: cfg } = await supabase
+        .from('agent_configs')
+        .select('business_state, business_address')
+        .eq('workspace_id', workspaceId)
+        .single()
+      const { LocationSection } = await import('../_components/LocationSection')
+      return (
+        <LocationSection
+          state={(cfg?.business_state as string | null) ?? null}
+          address={(cfg?.business_address as string | null) ?? null}
+        />
+      )
+    }
+
+    case 'trades': {
+      const { data: ws } = await supabase
+        .from('workspaces')
+        .select('business_type, business_type_other, additional_trades')
+        .eq('id', workspaceId)
+        .single()
+      const { TradesSection } = await import('../_components/TradesSection')
+      return (
+        <TradesSection
+          primary={(ws?.business_type as string | null) ?? null}
+          primaryOther={(ws?.business_type_other as string | null) ?? null}
+          additional={Array.isArray(ws?.additional_trades) ? (ws!.additional_trades as string[]) : []}
+        />
+      )
+    }
+
     case 'hours': {
       const { data: cfg } = await supabase
         .from('agent_configs')
-        .select('business_hours, timezone')
+        .select('business_hours, timezone, holidays')
         .eq('workspace_id', workspaceId)
         .single()
       return (
@@ -98,6 +130,7 @@ async function renderSection(
           initial={{
             hours: buildInitialHours(cfg?.business_hours),
             timezone: (cfg?.timezone as string | null) ?? null,
+            holidays: normalizeHolidays(cfg?.holidays),
           }}
         />
       )
@@ -143,18 +176,28 @@ async function renderSection(
     }
 
     case 'team': {
-      const { data: operators } = await supabase
-        .from('operators')
-        .select('id, name, email, phone, color, is_cs_rep, is_technician, is_manager, priority_cs, priority_tech, priority_manager, created_at')
-        .eq('workspace_id', workspaceId)
-        .order('created_at', { ascending: true })
+      const [{ data: operators }, { data: wsTeam }] = await Promise.all([
+        supabase
+          .from('operators')
+          .select('id, name, email, phone, color, is_cs_rep, is_technician, is_manager, priority_cs, priority_tech, priority_manager, created_at')
+          .eq('workspace_id', workspaceId)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('workspaces')
+          .select('business_type')
+          .eq('id', workspaceId)
+          .single(),
+      ])
       return (
         <>
           <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
             The people who do the work — techs, dispatchers, owners. Add them
             here so the AI can route bookings to the right person.
           </p>
-          <TeamSection operators={(operators ?? []) as Operator[]} />
+          <TeamSection
+            operators={(operators ?? []) as Operator[]}
+            businessType={(wsTeam?.business_type as BusinessType | null) ?? null}
+          />
         </>
       )
     }
@@ -163,7 +206,7 @@ async function renderSection(
     case 'voice': {
       const [cfgRes, wsRes] = await Promise.all([
         supabase.from('agent_configs').select('*').eq('workspace_id', workspaceId).single(),
-        supabase.from('workspaces').select('business_type, business_type_other').eq('id', workspaceId).single(),
+        supabase.from('workspaces').select('business_type, business_type_other, additional_trades').eq('id', workspaceId).single(),
       ])
       const cfg = cfgRes.data
       if (!cfg) {
@@ -186,29 +229,33 @@ async function renderSection(
       const defaultGreeting = `Thanks for calling ${businessName}, this is ${agentName}. How can I help?`
       const greetingValue = ((cfg.greeting as string | null) ?? '').trim() || defaultGreeting
 
+      // Drift indicator: show a banner if any field on agent_configs has
+      // changed since the last successful Vapi push.
+      const updatedAt = cfg.updated_at ? new Date(cfg.updated_at as string).getTime() : 0
+      const syncedAt = cfg.vapi_synced_at ? new Date(cfg.vapi_synced_at as string).getTime() : 0
+      const driftDetected = updatedAt > 0 && updatedAt > syncedAt + 1000 // 1s buffer for clock skew
+
       return (
         <VoicePersonaSection
           config={{
             agent_name: agentName,
             greeting: greetingValue,
             tone: ((cfg.tone as string | null) ?? 'friendly') as 'friendly' | 'professional' | 'direct',
-            speaking_rate: ((cfg.speaking_rate as string | null) ?? 'normal') as 'slow' | 'normal' | 'fast',
             recording_enabled: Boolean(cfg.recording_enabled ?? true),
             voice_speed: cfg.voice_speed != null ? Number(cfg.voice_speed) : 1.0,
             use_custom_system_prompt: Boolean(cfg.use_custom_system_prompt),
             custom_system_prompt: (cfg.custom_system_prompt as string | null) ?? null,
             previous_custom_system_prompt: (cfg.previous_custom_system_prompt as string | null) ?? null,
             generated_system_prompt_preview: generatedPreview,
-            model_tier: ((cfg.model_tier as string | null) ?? 'balanced') as 'fast' | 'balanced' | 'best',
             temperature: Number(cfg.temperature ?? 0.7),
             max_tokens: Number(cfg.max_tokens ?? 250),
             end_call_phrases: Array.isArray(cfg.end_call_phrases)
               ? (cfg.end_call_phrases as string[])
               : ['goodbye', 'bye'],
             interruption_threshold_sec: Number(cfg.interruption_threshold_sec ?? 0.5),
-            backchanneling_enabled: Boolean(cfg.backchanneling_enabled ?? true),
             max_call_duration_sec: Number(cfg.max_call_duration_sec ?? 480),
             silence_timeout_sec: Number(cfg.silence_timeout_sec ?? 5),
+            drift_detected: driftDetected,
           }}
         />
       )
@@ -217,8 +264,20 @@ async function renderSection(
     case 'after-hours':
       return <Placeholder>What the AI does outside business hours: take a message, escalate to on-call, or live-transfer.</Placeholder>
 
-    case 'escalation':
-      return <Placeholder>On-call number(s) and emergency keywords that route a call straight to a human.</Placeholder>
+    case 'escalation': {
+      const { data: cfg } = await supabase
+        .from('agent_configs')
+        .select('escalation_triggers, escalation_non_triggers')
+        .eq('workspace_id', workspaceId)
+        .single()
+      const { EscalationSection } = await import('../_components/EscalationSection')
+      return (
+        <EscalationSection
+          initialTriggers={(cfg?.escalation_triggers as string[] | null) ?? []}
+          initialNonTriggers={(cfg?.escalation_non_triggers as string[] | null) ?? []}
+        />
+      )
+    }
 
     // ---- Connections -----------------------------------------------------
     case 'phone-number': {
@@ -246,6 +305,59 @@ async function renderSection(
     // ---- Billing ---------------------------------------------------------
     case 'plan':
       return <Placeholder>Plan, payment method, invoices, usage. Stripe integration deferred until pilot revenue.</Placeholder>
+
+    // ---- Dev tools (admin only) ------------------------------------------
+    case 'dev': {
+      const { data: { user: devUser } } = await (await createClient()).auth.getUser()
+      if (devUser?.email !== ECHON_ADMIN_EMAIL) notFound()
+
+      const { data: ws } = await (await createClient())
+        .from('workspaces')
+        .select('business_type')
+        .eq('id', workspaceId)
+        .single()
+      const current = (ws?.business_type as BusinessType | null) ?? null
+
+      const { devSetTrade } = await import('../actions')
+      return (
+        <div className="space-y-6">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400">
+            Admin-only. Remove or move to the admin dashboard before public launch.
+          </div>
+
+          <div className="rounded-lg border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <h3 className="mb-3 text-sm font-medium text-zinc-900 dark:text-white">Trade switcher</h3>
+            <p className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
+              Override the workspace&apos;s <code className="font-mono">business_type</code> to preview
+              how role configs, service catalogs, and AI prompts behave for each trade.
+            </p>
+            <form action={devSetTrade} className="flex items-center gap-3">
+              <select
+                name="business_type"
+                defaultValue={current ?? ''}
+                className="block rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+              >
+                <option value="" disabled>— select trade —</option>
+                {BUSINESS_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-zinc-800 dark:border-white dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+              >
+                Apply
+              </button>
+              {current && (
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Current: <strong>{BUSINESS_TYPE_OPTIONS.find((o) => o.value === current)?.label ?? current}</strong>
+                </span>
+              )}
+            </form>
+          </div>
+        </div>
+      )
+    }
   }
 }
 

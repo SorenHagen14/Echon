@@ -7,21 +7,21 @@ export type VoicePersonaConfig = {
   agent_name: string | null
   greeting: string | null
   tone: 'friendly' | 'professional' | 'direct'
-  speaking_rate: 'slow' | 'normal' | 'fast'
   voice_speed: number
   recording_enabled: boolean
   use_custom_system_prompt: boolean
   custom_system_prompt: string | null
   previous_custom_system_prompt: string | null
   generated_system_prompt_preview: string  // shown when custom is off
-  model_tier: 'fast' | 'balanced' | 'best'
   temperature: number
   max_tokens: number
   end_call_phrases: string[]
   interruption_threshold_sec: number
-  backchanneling_enabled: boolean
   max_call_duration_sec: number
   silence_timeout_sec: number
+  // Drift indicator: true when agent_configs.updated_at > vapi_synced_at,
+  // i.e. the user has saved changes that never made it to Vapi.
+  drift_detected: boolean
 }
 
 const ADVANCED_KEY = 'echon.settings.voice.showAdvanced'
@@ -29,19 +29,17 @@ const ADVANCED_KEY = 'echon.settings.voice.showAdvanced'
 export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [useCustom, setUseCustom] = useState(config.use_custom_system_prompt)
-  const [confirmedPromptEdit, setConfirmedPromptEdit] = useState(false)
-  const [customPrompt, setCustomPrompt] = useState(
-    config.custom_system_prompt ?? config.generated_system_prompt_preview ?? '',
-  )
+  // Custom-prompt-empty trap fix: when the user first toggles ON, the
+  // textarea is empty (NOT pre-filled with the auto-generated content) so
+  // they have to make a deliberate decision. They can either paste their
+  // own or click "Start from auto-generated."
+  const [customPrompt, setCustomPrompt] = useState(config.custom_system_prompt ?? '')
   const [voiceSpeed, setVoiceSpeed] = useState(config.voice_speed ?? 1.0)
   const [state, formAction, pending] = useActionState<VoicePersonaResult | null, FormData>(
     updateVoicePersona,
     null,
   )
 
-  // Read the persisted toggle once after hydration, never during render —
-  // otherwise the SSR'd "Show" button hydrates into a "Hide" button and
-  // React panics about a mismatch.
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (localStorage.getItem(ADVANCED_KEY) === '1') setShowAdvanced(true)
@@ -61,6 +59,18 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
 
   return (
     <form action={formAction} className="space-y-8">
+      {/* Drift indicator — sits at the top so the user can't miss it. Hides
+          itself on a successful save (state.ok) since the action just synced. */}
+      {config.drift_detected && !(state && state.ok) && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-semibold">Your changes aren&apos;t live on Vapi yet.</p>
+          <p className="mt-0.5 text-xs">
+            Echon saved them, but the last push to Vapi failed or was skipped.
+            Hit Save below to retry the sync.
+          </p>
+        </div>
+      )}
+
       {/* ---- BASICS ----------------------------------------------------- */}
       <FormCard>
         <CardTitle>Basics</CardTitle>
@@ -75,12 +85,11 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
           />
         </Field>
 
-        <Field label="First message" hint="What the agent says when it picks up.">
+        <Field label="First message" hint="What the agent says when it picks up. Default: 'Thanks for calling [Business], this is [Agent]. How can I help?'">
           <textarea
             name="greeting"
             defaultValue={config.greeting ?? ''}
             rows={2}
-            placeholder="Thanks for calling — this is Riley, how can I help?"
             className={textareaCls}
           />
         </Field>
@@ -91,34 +100,6 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
             <option value="professional">Professional</option>
             <option value="direct">Direct</option>
           </select>
-        </Field>
-
-        <Field
-          label={`Voice speed — ${voiceSpeed.toFixed(2)}x`}
-          hint="Vapi native scale: 0.25 = very slow, 1.00 = default, 2.00 = very fast. Most owners settle around 1.05–1.20."
-        >
-          <input
-            type="range"
-            name="voice_speed"
-            min={0.25}
-            max={2.0}
-            step={0.05}
-            value={voiceSpeed}
-            onChange={(e) => setVoiceSpeed(Number(e.currentTarget.value))}
-            className="w-full"
-          />
-          <div className="mt-1 flex justify-between text-[10px] text-zinc-400 dark:text-zinc-600">
-            <span>0.25 slow</span>
-            <span>1.00 default</span>
-            <span>2.00 fast</span>
-          </div>
-          {/* Legacy speaking_rate enum still feeds the system prompt's verbal
-              hint — derive it from the slider so they don't drift. */}
-          <input
-            type="hidden"
-            name="speaking_rate"
-            value={voiceSpeed < 0.85 ? 'slow' : voiceSpeed > 1.15 ? 'fast' : 'normal'}
-          />
         </Field>
 
         <Field label="Recording">
@@ -140,9 +121,6 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
       {showAdvanced && (
         <>
           {/* ---- MODEL ---------------------------------------------------- */}
-          {/* Model picker is hidden on every plan today — Haiku for everyone.
-              Higher tiers (Sonnet, Opus) will reappear here gated behind a
-              subscription tier. See BACKLOG: subscription-tier gating. */}
           <FormCard>
             <CardTitle>Model tuning</CardTitle>
             <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
@@ -181,8 +159,9 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
             <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
               The instructions the AI follows on every call. Echon generates
               this for you from your business config (services, hours, tone,
-              etc.). You can override it with your own — but if you do, the
-              auto-generated content stops being applied automatically.
+              trade, escalation rules, etc.). You can override it with your
+              own — but if you do, those auto-generated parts stop being
+              applied automatically.
             </p>
 
             <Field label="">
@@ -194,22 +173,22 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
               />
             </Field>
 
-            {useCustom && !confirmedPromptEdit && config.use_custom_system_prompt === false && (
+            {useCustom && config.use_custom_system_prompt === false && (
               <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                 <p className="font-semibold">Heads up — this is a serious change.</p>
                 <p className="mt-1 text-xs">
-                  Editing the full system prompt overrides Echon&apos;s defaults and
-                  can make the agent behave unpredictably (skip safety rules,
-                  forget services, drop business hours). Only do this if you
-                  understand prompt engineering. The previous prompt is kept so
-                  you can one-step undo.
+                  A custom prompt overrides Echon&apos;s defaults. The agent
+                  will lose the auto-generated rules (services, hours,
+                  escalation, recording disclosure) unless you include them
+                  yourself. Click below to start from the current auto-generated
+                  prompt, then edit.
                 </p>
                 <button
                   type="button"
-                  onClick={() => setConfirmedPromptEdit(true)}
+                  onClick={() => setCustomPrompt(config.generated_system_prompt_preview)}
                   className="mt-2 rounded-md border border-amber-400 bg-white px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-50 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-100"
                 >
-                  I understand — let me edit
+                  Start from auto-generated prompt
                 </button>
               </div>
             )}
@@ -221,9 +200,12 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
                   value={customPrompt}
                   onChange={(e) => setCustomPrompt(e.currentTarget.value)}
                   rows={14}
-                  disabled={!confirmedPromptEdit && config.use_custom_system_prompt === false}
+                  placeholder="Paste or write your full system prompt here. At least 50 characters."
                   className={textareaCls + ' font-mono text-xs'}
                 />
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  {customPrompt.trim().length} characters {customPrompt.trim().length < 50 ? '(need at least 50 to save)' : ''}
+                </p>
                 <div className="mt-2 flex items-center gap-3">
                   <button
                     type="button"
@@ -256,7 +238,28 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
           <FormCard>
             <CardTitle>Behavior</CardTitle>
 
-            <Field label="End-call phrases" hint="Comma- or newline-separated. The agent listens for these to hang up.">
+            <Field
+              label={`Voice speed — ${voiceSpeed.toFixed(2)}x`}
+              hint="Vapi native scale: 0.25 = very slow, 1.00 = default, 2.00 = very fast. Most owners settle around 1.05–1.20."
+            >
+              <input
+                type="range"
+                name="voice_speed"
+                min={0.25}
+                max={2.0}
+                step={0.05}
+                value={voiceSpeed}
+                onChange={(e) => setVoiceSpeed(Number(e.currentTarget.value))}
+                className="w-full"
+              />
+              <div className="mt-1 flex justify-between text-[10px] text-zinc-400 dark:text-zinc-600">
+                <span>0.25 slow</span>
+                <span>1.00 default</span>
+                <span>2.00 fast</span>
+              </div>
+            </Field>
+
+            <Field label="End-call phrases" hint="Comma- or newline-separated. The agent listens for these to hang up. Must have at least one — empty falls back to defaults.">
               <textarea
                 name="end_call_phrases"
                 defaultValue={config.end_call_phrases.join(', ')}
@@ -304,7 +307,6 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
         </>
       )}
 
-      {/* ---- RESULT BANNER -------------------------------------------- */}
       {state && state.ok && (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
           Saved and synced to Vapi.
@@ -317,7 +319,6 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
         </div>
       )}
 
-      {/* ---- SAVE ------------------------------------------------------ */}
       <div className="flex justify-end">
         <button
           type="submit"

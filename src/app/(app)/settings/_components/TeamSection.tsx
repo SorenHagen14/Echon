@@ -1,3 +1,4 @@
+import type { BusinessType } from '@/app/onboarding/_constants'
 import { OperatorForm } from './OperatorForm'
 
 export type Operator = {
@@ -15,25 +16,46 @@ export type Operator = {
   created_at: string
 }
 
-const SLOT_TAGS: { key: 'is_cs_rep' | 'is_technician' | 'is_manager'; label: string }[] = [
-  { key: 'is_cs_rep',     label: 'CS' },
-  { key: 'is_technician', label: 'Tech' },
+export type RoleKey = 'is_cs_rep' | 'is_technician' | 'is_manager'
+export type RoleDef = { key: RoleKey; label: string }
+
+const ALL_ROLES: RoleDef[] = [
+  { key: 'is_cs_rep',     label: 'Customer service' },
+  { key: 'is_technician', label: 'Technician' },
   { key: 'is_manager',    label: 'Manager' },
 ]
 
-export function TeamSection({ operators }: { operators: Operator[] }) {
+// Trades where the technician role doesn't apply
+const TRADES_WITHOUT_TECHNICIAN: Array<BusinessType> = ['deck_fence']
+
+export function getRolesForTrade(businessType: BusinessType | null): RoleDef[] {
+  if (businessType && TRADES_WITHOUT_TECHNICIAN.includes(businessType)) {
+    return ALL_ROLES.filter((r) => r.key !== 'is_technician')
+  }
+  return ALL_ROLES
+}
+
+export function TeamSection({
+  operators,
+  businessType,
+}: {
+  operators: Operator[]
+  businessType: BusinessType | null
+}) {
+  const roles = getRolesForTrade(businessType)
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         {operators.length === 0 ? (
           <p className="px-5 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
             No team members yet. Add the people who do the work — they&apos;ll show up
-            in the case slot dropdowns once you mark them eligible.
+            in the case slot dropdowns once you assign them a role.
           </p>
         ) : (
           <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
             {operators.map((op) => {
-              const tags = SLOT_TAGS.filter((t) => op[t.key])
+              const tags = roles.filter((r) => op[r.key])
               return (
                 <li key={op.id} className="px-5 py-4">
                   <details>
@@ -51,12 +73,12 @@ export function TeamSection({ operators }: { operators: Operator[] }) {
                           )}
                           {tags.length > 0 && (
                             <span className="flex flex-wrap gap-1">
-                              {tags.map((t) => (
+                              {tags.map((r) => (
                                 <span
-                                  key={t.key}
+                                  key={r.key}
                                   className="inline-flex rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                                 >
-                                  {t.label}
+                                  {r.label}
                                 </span>
                               ))}
                             </span>
@@ -65,7 +87,7 @@ export function TeamSection({ operators }: { operators: Operator[] }) {
                       </div>
                       <span className="text-xs text-zinc-400 dark:text-zinc-600">Edit</span>
                     </summary>
-                    <OperatorForm operator={op} />
+                    <OperatorForm operator={op} availableRoles={roles} />
                   </details>
                 </li>
               )
@@ -79,7 +101,7 @@ export function TeamSection({ operators }: { operators: Operator[] }) {
           + Add team member
         </summary>
         <div className="border-t border-zinc-200 px-5 py-4 dark:border-zinc-800">
-          <OperatorForm />
+          <OperatorForm availableRoles={roles} />
         </div>
       </details>
     </div>

@@ -177,26 +177,83 @@ const KNOWN_OTHER_TRADES: Array<{ match: string[]; profile: TradeProfile }> = [
   },
 ]
 
-function tradeProfile(config: AssistantConfig): TradeProfile {
-  const key = (config.businessType ?? '').toLowerCase()
-  if (key in TRADE_PROFILES) return TRADE_PROFILES[key]
-
-  // business_type='other' — try to match the free-text against known
-  // verticals before falling back to a neutral profile.
-  if (key === 'other' && config.businessTypeOther) {
-    const other = config.businessTypeOther.toLowerCase()
+// Resolve a single trade key to its profile. Falls back to KNOWN_OTHER_TRADES
+// substring matching when the key is the literal 'other' marker.
+function profileForKey(key: string, otherText: string | null): TradeProfile | null {
+  const k = key.toLowerCase()
+  if (k in TRADE_PROFILES) return TRADE_PROFILES[k]
+  if ((k === 'other' || !k) && otherText) {
+    const other = otherText.toLowerCase()
     for (const entry of KNOWN_OTHER_TRADES) {
       if (entry.match.some((m) => other.includes(m))) return entry.profile
     }
   }
+  return null
+}
 
-  return {
-    trade: config.businessTypeOther?.trim() || 'service',
-    systemNoun: 'system',
-    exampleSystems: '',
-    emergencyKeywords: 'leak, fire, smoke, gas, flooding, no power',
-    commonIssues: 'Repairs, scheduled maintenance, and quote requests.',
+const NEUTRAL_PROFILE: TradeProfile = {
+  trade: 'service',
+  systemNoun: 'system',
+  exampleSystems: '',
+  emergencyKeywords: 'leak, fire, smoke, gas, flooding, no power, exposed wire',
+  commonIssues: 'Repairs, scheduled maintenance, and quote requests.',
+}
+
+// Merges multiple trade profiles into one — used when a workspace has a
+// primary trade plus additional trades. We dedupe across the comma-joined
+// fields so the prompt doesn't say the same word twice.
+function mergeProfiles(profiles: TradeProfile[]): TradeProfile {
+  if (profiles.length === 0) return NEUTRAL_PROFILE
+  if (profiles.length === 1) return profiles[0]
+
+  const tradeName = profiles.map((p) => p.trade).filter(Boolean).join(' + ')
+  const dedupe = (vals: string[]) => {
+    const seen = new Set<string>()
+    return vals.flatMap((v) => v.split(',').map((s) => s.trim()).filter(Boolean))
+      .filter((s) => {
+        const k = s.toLowerCase()
+        if (seen.has(k)) return false
+        seen.add(k)
+        return true
+      })
+      .join(', ')
   }
+  return {
+    trade: tradeName,
+    systemNoun: profiles[0].systemNoun,                // primary's noun wins
+    exampleSystems: dedupe(profiles.map((p) => p.exampleSystems)),
+    emergencyKeywords: dedupe(profiles.map((p) => p.emergencyKeywords)),
+    commonIssues: profiles.map((p) => p.commonIssues).join(' '),
+  }
+}
+
+function tradeProfile(config: AssistantConfig): TradeProfile {
+  const primary = profileForKey(config.businessType ?? '', config.businessTypeOther ?? null)
+  const additional = (config.additionalTrades ?? [])
+    .map((k) => profileForKey(k, null))
+    .filter((p): p is TradeProfile => p !== null)
+  const all = [primary, ...additional].filter((p): p is TradeProfile => p !== null)
+  if (all.length === 0) {
+    // No mapped trade — fall back to neutral, but keep the user's free-text
+    // label visible in the prompt so the agent knows what kind of business
+    // it's answering for.
+    return {
+      ...NEUTRAL_PROFILE,
+      trade: config.businessTypeOther?.trim() || 'service',
+    }
+  }
+  return mergeProfiles(all)
+}
+
+// US states that require all-party (two-party) consent for call recording.
+// If `business_state` is one of these AND recording is enabled, the prompt
+// instructs the agent to disclose at the top of the call.
+const TWO_PARTY_STATES = new Set([
+  'CA','CT','DE','FL','IL','MD','MA','MT','NV','NH','PA','WA',
+])
+function needsRecordingDisclosure(state: string | null | undefined, recording: boolean): boolean {
+  if (!recording || !state) return false
+  return TWO_PARTY_STATES.has(state.toUpperCase())
 }
 
 export function buildSystemPrompt(config: AssistantConfig): string {
@@ -210,43 +267,81 @@ export function buildSystemPrompt(config: AssistantConfig): string {
     .map(([day, h]) => (h.closed ? `  ${day}: closed` : `  ${day}: ${h.open}–${h.close}`))
     .join('\n')
 
+  const today = new Date().toISOString().slice(0, 10)
+  const upcomingHolidays = (config.holidays ?? [])
+    .filter((h) => h.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 12)
+  const holidaysSection = upcomingHolidays.length === 0
+    ? ''
+    : '\n\nHOLIDAYS — CLOSED ALL DAY\n' +
+      upcomingHolidays.map((h) => `  ${h.date}: ${h.label}`).join('\n') +
+      '\nIf a caller reaches you on one of these dates, treat the day as closed regardless of the weekly schedule above. Tell them: "We\'re closed today for ' +
+      '<holiday label>." Then follow your after-hours / message-taking rules.'
+
   const afterHoursLine =
     config.afterHoursMode === 'live_transfer' ? 'live-transfer the call to the on-call number'
       : config.afterHoursMode === 'escalate' ? 'page on-call by SMS/call and confirm a callback window'
       : 'take a clear message and promise a callback first thing in the morning'
 
-  const tradeSpecificDoNots = config.businessType === 'hvac'
-    ? '- Do not guess at diagnostics. Saying "sounds like your capacitor" before a tech sees it is wrong even when it\'s right — say "the tech will diagnose on-site."'
+  const recordingDisclosure = needsRecordingDisclosure(config.businessState, config.recordingEnabled)
+    ? '\nRECORDING DISCLOSURE — REQUIRED BY LAW IN THIS STATE\nRight after the greeting, before any other questions, say:\n  "Quick note — this call may be recorded for quality. Is that okay?"\nIf they say no, immediately say "No problem" and continue without further mention. If they say yes (or anything affirmative), continue.\nDo this on every call. Do not skip it, even if the caller jumps straight to their problem — pause them politely once: "Got it — before we go on, I just have to check: this call may be recorded for quality. Okay?" Then proceed.\n'
     : ''
+
+  const escalateBlock = (config.escalationTriggers && config.escalationTriggers.length > 0)
+    ? config.escalationTriggers.map((t) => `- ${t}`).join('\n')
+    : '- Caller asks for a human or representative\n- Caller is upset, cursing, or threatening\n- Caller mentions emergency keywords\n- Caller has an issue outside the services we offer'
+
+  const noEscalateBlock = (config.escalationNonTriggers && config.escalationNonTriggers.length > 0)
+    ? config.escalationNonTriggers.map((t) => `- ${t}`).join('\n')
+    : '- Caller is asking about pricing\n- Caller is asking about hours of operation\n- Caller is rescheduling an existing appointment'
+
+  const serviceAreaSection = (() => {
+    const parts: string[] = []
+    if (config.businessState) parts.push(`We're based in ${config.businessState}.`)
+    parts.push('If a caller is clearly outside our service area, escalate — don\'t book.')
+    return parts.join(' ')
+  })()
 
   return `You are ${config.agentName}, the AI receptionist for ${config.businessName}, a ${profile.trade} business.
 
 YOUR JOB
-Answer inbound calls. Most callers are existing customers with a problem, prospects asking for pricing or scheduling, or someone confirming an appointment. Decide quickly which one you're talking to, collect the information the dispatcher needs, and end with a clear next step (booked / quoted / escalated / message taken).
+Answer inbound calls. Most callers are existing customers with a problem, prospects asking for pricing or scheduling, or someone confirming an appointment. Decide quickly which one you're talking to, collect the information the team needs, and end with a clear next step (booked / quoted / escalated / message taken).
 
 GREETING
 Open with: "${config.greeting}"
-
+${recordingDisclosure}
 INFORMATION TO COLLECT (only ask for what's missing — never re-ask)
 1. Caller's name.
 2. Phone number to reach them on (if it differs from caller ID).
 3. Service address (if the work is at a property — confirm if known).
-4. The ${profile.systemNoun} or component involved${profile.exampleSystems ? ` (e.g. ${profile.exampleSystems})` : ''}.
-5. Brief description of the problem or what they want quoted.
-6. Urgency: emergency / today / this week / flexible.
-7. Preferred time window if booking.
+4. Brief description of the problem or what they want quoted, in plain words.
+5. Urgency: emergency / today / this week / flexible.
+6. Preferred time window if booking.
 
 OUTCOME — pick exactly one
 • BOOK when: the caller agrees to a specific date+time you've offered for a service that's marked "bookable directly" below. State the slot back once to confirm.
 • QUOTE when: full system replacement, commercial property, insurance claim, or a service marked "quote required". Tell them a tech will visit/call to estimate and capture address + best contact time.
-• ESCALATE when: emergency keywords are mentioned (${profile.emergencyKeywords}), the caller is upset, the issue is outside the services list, or the caller insists on speaking to a human. Promise a callback within a stated window.
+• ESCALATE when ANY of the conditions in "ESCALATE IMMEDIATELY" below is true. Promise a callback within a stated window.
 • MESSAGE when: it's outside business hours and not an emergency. Take name + callback number + one-sentence reason + best window.
+
+ESCALATE IMMEDIATELY when any of these is true:
+${escalateBlock}
+Plus the trade emergency keywords: ${profile.emergencyKeywords}.
+The "asks for a human" trigger is the most important — if the caller says "speak to a representative", "let me talk to a person", "get me a human", or anything similar, stop the script immediately. Capture only their name + callback number, tell them you'll have someone call them right back, and end the call. Do not try to handle anything else.
+
+DO NOT escalate just because:
+${noEscalateBlock}
+Those are normal call topics — handle them in the normal flow above.
 
 SERVICES
 ${services}
 
 HOURS (${config.timezone})
-${hours}
+${hours}${holidaysSection}
+
+SERVICE AREA
+${serviceAreaSection}
 
 AFTER HOURS / EMERGENCY ROUTING
 Outside the hours above, ${afterHoursLine}.
@@ -254,13 +349,12 @@ On any emergency keyword (${profile.emergencyKeywords}), interrupt the normal fl
 
 COMMON ISSUES IN THIS TRADE
 ${profile.commonIssues}
-Use this only to recognize what the caller is describing — never volunteer it as a diagnosis. Diagnosis is the tech's job, not yours.
+Use this only to recognize what the caller is describing — never volunteer it as a diagnosis. The caller doesn't need or want trade jargon. When they describe a symptom, just say "got it — a tech will come out and diagnose it on-site." Don't say "sounds like your condenser fan" or "could be the capacitor." A homeowner doesn't know those words and being told them feels condescending.
 
 VOICE STYLE
 - Tone: ${config.tone}${config.toneOther ? ` (${config.toneOther})` : ''}.
-- Speaking rate: ${config.speakingRate ?? 'normal'}.
-- Use ${profile.trade}-specific terminology when natural ("the condenser fan", "the air handler") — avoid vague words like "the unit" or "the thing."
-- Confirmations are casual: "Got it — 1234 Oak Street, right?" Not: "Let me read that back: one-two-three-four Oak Street."
+- Plain words. Match the caller's vocabulary — if they say "the unit", say "the unit". If they say "the AC", say "the AC". Don't escalate vocabulary on them.
+- Confirmations are casual by default: "Got it — 1234 Oak Street, right?" If the caller specifically asks for a digit-by-digit readback, do it.
 - One short sentence per turn whenever possible. Two if you must. Never three.
 
 UPSET CALLERS — recognize and handle
@@ -291,8 +385,9 @@ DO NOT
 - DO NOT promise pricing you don't have. For "quote required" services, say "we'll send someone to give you a written estimate" — never improvise a number.
 - DO NOT promise dispatch times that conflict with the schedule. Offer a window and confirm before locking it in.
 - DO NOT use filler phrases: "real quick", "just wanted to check in", "circle back", "touch base", "if you don't mind me asking". Cut them all.
-- DO NOT spell the address back digit-by-digit unless they ask for that. Confirm naturally.
-- DO NOT end the call until you've stated the outcome out loud: what's booked, what's escalated, or what message you took. The caller should hang up knowing exactly what happens next.${tradeSpecificDoNots ? '\n' + tradeSpecificDoNots : ''}
+- DO NOT default to digit-by-digit address readback. Confirm naturally; do digit-by-digit only when the caller asks for that.
+- DO NOT use trade-specific component names ("condenser fan", "capacitor", "expansion valve"). The caller doesn't know them.
+- DO NOT end the call until you've stated the outcome out loud: what's booked, what's escalated, or what message you took. The caller should hang up knowing exactly what happens next.
 
 If you don't have enough information to take any of the four outcomes above, ESCALATE — do not invent a path forward.
 
@@ -324,9 +419,13 @@ function buildVapiPayload(config: AssistantConfig) {
   if (typeof config.temperature === 'number') model.temperature = config.temperature
   if (typeof config.maxTokens === 'number') model.maxTokens = config.maxTokens
 
-  const voiceCfg: Record<string, unknown> = { provider: voice.provider, voiceId: voice.voiceId }
-  if (typeof config.voiceSpeed === 'number' && config.voiceSpeed !== 1) {
-    voiceCfg.speed = config.voiceSpeed
+  // Always send the speed — omitting it lets stale Vapi state stick. If
+  // the user dragged the slider 1.2 → 1.0, we want Vapi to actually go
+  // back to 1.0, not silently stay at 1.2.
+  const voiceCfg: Record<string, unknown> = {
+    provider: voice.provider,
+    voiceId: voice.voiceId,
+    speed: typeof config.voiceSpeed === 'number' ? config.voiceSpeed : 1,
   }
 
   const payload: Record<string, unknown> = {
@@ -339,13 +438,16 @@ function buildVapiPayload(config: AssistantConfig) {
   if (config.endCallPhrases && config.endCallPhrases.length > 0) {
     payload.endCallPhrases = config.endCallPhrases
   }
-  // Vapi expects this nested under stopSpeakingPlan, not as a top-level
-  // `interruptionThreshold`. The unit is seconds of caller voice activity
-  // required to interrupt the agent.
+  // Vapi's stopSpeakingPlan replaces the whole object on PATCH — sending
+  // only voiceSeconds wipes Vapi's other defaults. Send all three fields
+  // so the agent's stop-speaking behavior stays sane.
   if (typeof config.interruptionThresholdSec === 'number') {
-    payload.stopSpeakingPlan = { voiceSeconds: config.interruptionThresholdSec }
+    payload.stopSpeakingPlan = {
+      voiceSeconds: config.interruptionThresholdSec,
+      numWords: 0,
+      backoffSeconds: 1,
+    }
   }
-  // backchannelingEnabled isn't a real Vapi field. Intentionally not sent.
   return payload
 }
 

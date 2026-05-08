@@ -4,12 +4,16 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SETTINGS_GROUPS } from '../_constants'
 
-export function SettingsRail() {
+export function SettingsRail({ showDevTools }: { showDevTools: boolean }) {
   const pathname = usePathname()
+
+  const groups = showDevTools
+    ? [...SETTINGS_GROUPS, { label: 'Dev', items: [{ slug: 'dev', label: 'Dev tools' }] }]
+    : SETTINGS_GROUPS
 
   return (
     <nav className="flex flex-col gap-5">
-      {SETTINGS_GROUPS.map((group) => (
+      {groups.map((group) => (
         <div key={group.label}>
           <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             {group.label}

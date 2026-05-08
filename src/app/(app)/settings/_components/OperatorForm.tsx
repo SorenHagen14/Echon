@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { createOperator, deleteOperator, updateOperator } from '../actions'
-import type { Operator } from './TeamSection'
+import type { Operator, RoleDef } from './TeamSection'
 
 const PRESET_COLORS = [
   '#ef4444', '#f97316', '#eab308', '#22c55e',
@@ -12,14 +12,29 @@ const PRESET_COLORS = [
 
 const PRIORITY_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-export function OperatorForm({ operator }: { operator?: Operator }) {
+const ROLE_PRIORITY_FIELD: Record<string, { name: string; defaultKey: keyof Operator }> = {
+  is_cs_rep:     { name: 'priority_cs',      defaultKey: 'priority_cs' },
+  is_technician: { name: 'priority_tech',     defaultKey: 'priority_tech' },
+  is_manager:    { name: 'priority_manager',  defaultKey: 'priority_manager' },
+}
+
+export function OperatorForm({ operator, availableRoles }: { operator?: Operator; availableRoles: RoleDef[] }) {
   const isEdit = !!operator
 
-  // Local state for the eligibility checkboxes — drives whether the matching
-  // priority input renders. Server source of truth still wins after submit.
   const [isCs, setIsCs] = useState(operator?.is_cs_rep ?? false)
   const [isTech, setIsTech] = useState(operator?.is_technician ?? false)
   const [isMgr, setIsMgr] = useState(operator?.is_manager ?? false)
+
+  const roleState: Record<string, [boolean, (v: boolean) => void]> = {
+    is_cs_rep:     [isCs, setIsCs],
+    is_technician: [isTech, setIsTech],
+    is_manager:    [isMgr, setIsMgr],
+  }
+
+  const availableKeys = new Set(availableRoles.map((r) => r.key))
+  const hiddenRoleKeys = (['is_cs_rep', 'is_technician', 'is_manager'] as const).filter(
+    (k) => !availableKeys.has(k),
+  )
 
   return (
     <form action={isEdit ? updateOperator : createOperator} className="mt-3 space-y-4">
@@ -55,55 +70,48 @@ export function OperatorForm({ operator }: { operator?: Operator }) {
         </div>
       </div>
 
-      {/* Eligibility — drives which case slots this person can be picked for */}
+      {/* Role — which case slots this person can be assigned to */}
       <div>
-        <span className="mb-1 block text-xs text-zinc-600 dark:text-zinc-400">
-          Eligible for case slots
-        </span>
+        <span className="mb-1 block text-xs text-zinc-600 dark:text-zinc-400">Role</span>
+        {/* Hidden false inputs for roles not available in this trade */}
+        {hiddenRoleKeys.map((k) => (
+          <input key={k} type="hidden" name={k} value="false" />
+        ))}
         <div className="flex flex-wrap gap-4 text-sm text-zinc-700 dark:text-zinc-300">
-          <CheckLabel
-            name="is_cs_rep"
-            label="Customer service"
-            checked={isCs}
-            onChange={setIsCs}
-          />
-          <CheckLabel
-            name="is_technician"
-            label="Technician"
-            checked={isTech}
-            onChange={setIsTech}
-          />
-          <CheckLabel
-            name="is_manager"
-            label="Manager"
-            checked={isMgr}
-            onChange={setIsMgr}
-          />
+          {availableRoles.map((r) => {
+            const [checked, setChecked] = roleState[r.key]
+            return (
+              <CheckLabel
+                key={r.key}
+                name={r.key}
+                label={r.label}
+                checked={checked}
+                onChange={setChecked}
+              />
+            )
+          })}
         </div>
       </div>
 
-      {/* Advanced — per-role priority. Only shown for the roles this person is
-          eligible for; we still post hidden defaults for unchecked roles so
-          updateOperator gets a complete payload. */}
-      {(isCs || isTech || isMgr) && (
+      {/* Advanced — per-role priority */}
+      {availableRoles.some((r) => roleState[r.key][0]) && (
         <details className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/40">
           <summary className="cursor-pointer text-xs font-medium text-zinc-600 dark:text-zinc-400">
             Advanced — priority per role
           </summary>
           <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-            1–10. Higher wins when auto-assign picks between eligible operators
-            who are both available.
+            1–10. Higher wins when auto-assign picks between operators who are both available.
           </p>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {isCs && (
-              <PriorityField name="priority_cs" label="Customer service" defaultValue={operator?.priority_cs ?? 5} />
-            )}
-            {isTech && (
-              <PriorityField name="priority_tech" label="Technician" defaultValue={operator?.priority_tech ?? 5} />
-            )}
-            {isMgr && (
-              <PriorityField name="priority_manager" label="Manager" defaultValue={operator?.priority_manager ?? 5} />
-            )}
+            {availableRoles.map((r) => {
+              const [checked] = roleState[r.key]
+              const pf = ROLE_PRIORITY_FIELD[r.key]
+              if (!checked || !pf) return null
+              const defaultValue = operator ? (operator[pf.defaultKey] as number) : 5
+              return (
+                <PriorityField key={r.key} name={pf.name} label={r.label} defaultValue={defaultValue} />
+              )
+            })}
           </div>
         </details>
       )}

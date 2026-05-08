@@ -22,6 +22,8 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
   {
     label: 'Business',
     items: [
+      { slug: 'location',          label: 'Location' },
+      { slug: 'trades',            label: 'Trades' },
       { slug: 'hours',             label: 'Hours' },
       { slug: 'services',          label: 'Services & pricing' },
       { slug: 'schedule',          label: 'Schedule' },
@@ -54,13 +56,19 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
 
 export type SettingsSectionSlug =
   | 'profile' | 'notifications'
-  | 'hours' | 'services' | 'schedule' | 'team'
+  | 'location' | 'trades' | 'hours' | 'services' | 'schedule' | 'team'
   | 'voice' | 'after-hours' | 'escalation'
   | 'phone-number' | 'calendar' | 'other-integrations'
   | 'plan'
+  | 'dev'
 
-export const SETTINGS_SECTION_SLUGS: readonly SettingsSectionSlug[] =
-  SETTINGS_GROUPS.flatMap((g) => g.items.map((i) => i.slug)) as readonly SettingsSectionSlug[]
+export const SETTINGS_SECTION_SLUGS: readonly SettingsSectionSlug[] = [
+  ...SETTINGS_GROUPS.flatMap((g) => g.items.map((i) => i.slug)) as SettingsSectionSlug[],
+  'dev',
+]
+
+// Only this email sees the dev-tools section in settings.
+export const ECHON_ADMIN_EMAIL = 'sorenhagen14@gmail.com'
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSectionSlug = 'profile'
 

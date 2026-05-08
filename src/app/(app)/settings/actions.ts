@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { BUSINESS_TYPE_OPTIONS, type BusinessType } from '@/app/onboarding/_constants'
+import { ECHON_ADMIN_EMAIL } from './_constants'
 
 async function requireWorkspace() {
   const supabase = await createClient()
@@ -104,4 +106,30 @@ export async function deleteOperator(formData: FormData): Promise<void> {
   revalidatePath('/settings/team')
   revalidatePath('/calls')
   revalidatePath('/dashboard')
+}
+
+export async function devSetTrade(formData: FormData): Promise<void> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user || user.email !== ECHON_ADMIN_EMAIL) throw new Error('Unauthorized')
+
+  const { data: workspace } = await supabase
+    .from('workspaces')
+    .select('id')
+    .eq('owner_id', user.id)
+    .single()
+  if (!workspace) throw new Error('Workspace not found')
+
+  const raw = formData.get('business_type')
+  const valid = BUSINESS_TYPE_OPTIONS.map((o) => o.value) as BusinessType[]
+  const businessType = typeof raw === 'string' && valid.includes(raw as BusinessType)
+    ? (raw as BusinessType)
+    : null
+
+  await supabase
+    .from('workspaces')
+    .update({ business_type: businessType, business_type_other: null })
+    .eq('id', workspace.id)
+
+  revalidatePath('/settings', 'layout')
 }

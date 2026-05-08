@@ -22,6 +22,10 @@ export interface AssistantConfig {
     pricingNote?: string | null
   }>
   businessHours: Record<string, { open: string; close: string; closed: boolean }>
+  // One-off closures (Christmas, July 4, etc.). Each entry is YYYY-MM-DD +
+  // a label. Read by the system prompt; only future-dated entries are
+  // surfaced to the assistant.
+  holidays?: Array<{ date: string; label: string }>
   timezone: string
   afterHoursMode: AfterHoursMode
   oncallNumbers?: string[]
@@ -50,6 +54,18 @@ export interface AssistantConfig {
   // `workspaces.business_type` / `business_type_other`.
   businessType?: string | null
   businessTypeOther?: string | null
+  // Secondary trades — many shops do more than one (HVAC + plumbing,
+  // roofing + gutters). Pulled from `workspaces.additional_trades`.
+  additionalTrades?: string[]
+
+  // 2-letter US state code (CA, FL, ...). Drives state-based recording
+  // disclosure logic in the prompt.
+  businessState?: string | null
+
+  // Configurable escalation rules — surfaced in Settings → Escalation
+  // and dropped verbatim into the system prompt.
+  escalationTriggers?: string[]
+  escalationNonTriggers?: string[]
 }
 
 export interface AvailableNumber {

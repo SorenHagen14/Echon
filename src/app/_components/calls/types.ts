@@ -11,6 +11,7 @@ export type TranscriptTurn = {
 
 export type CallDetail = {
   id: string
+  agent_name: string | null
   case_id: string | null
   vapi_call_id: string
   direction: string

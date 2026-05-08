@@ -70,10 +70,32 @@ export async function updateVoicePersona(_prev: VoicePersonaResult | null, formD
   const newCustom = nullableString(formData.get('custom_system_prompt'))
   const oldCustom = (existing?.custom_system_prompt as string | null) ?? null
 
+  // Custom prompt empty trap: if the user toggled on but didn't actually
+  // type a prompt, refuse the save. Otherwise they'd freeze a snapshot of
+  // the auto-generated prompt and silently detach from business config.
+  if (useCustom && (!newCustom || newCustom.length < 50)) {
+    return {
+      ok: false,
+      reason: 'Custom prompt is required when "use custom" is on, and needs to be at least 50 characters. Either turn the toggle off or paste/write a prompt.',
+      savedToDb: false,
+    }
+  }
+
+  // End-call phrases must include at least one entry; otherwise the agent
+  // never auto-hangs up. Fall back to sensible defaults if the user nuked
+  // the textarea.
+  const phrases = parseEndCallPhrases(formData.get('end_call_phrases'))
+  const endCallPhrases = phrases.length > 0
+    ? phrases
+    : ['goodbye', 'bye', 'have a good day', 'thank you bye']
+
   const updates: Record<string, unknown> = {
     agent_name: nullableString(formData.get('agent_name')) ?? 'Riley',
     greeting: nullableString(formData.get('greeting')),
     tone: pickEnum(TONES, formData.get('tone')) ?? 'friendly',
+    // speaking_rate is dead code in the prompt now (voice_speed handles
+    // both UX and TTS) — kept in DB for backward compat. Always derive
+    // from voice_speed via a hidden input so the column doesn't drift.
     speaking_rate: pickEnum(SPEAKING_RATES, formData.get('speaking_rate')) ?? 'normal',
     recording_enabled: formData.get('recording_enabled') === 'true',
 
@@ -81,9 +103,8 @@ export async function updateVoicePersona(_prev: VoicePersonaResult | null, formD
     // everyone runs on Haiku ('fast'). Re-introduce when tier-gating lands.
     temperature: clampNumber(formData.get('temperature'), 0, 1, 0.7),
     max_tokens: Math.round(clampNumber(formData.get('max_tokens'), 50, 1000, 250)),
-    end_call_phrases: parseEndCallPhrases(formData.get('end_call_phrases')),
+    end_call_phrases: endCallPhrases,
     interruption_threshold_sec: clampNumber(formData.get('interruption_threshold_sec'), 0.1, 3.0, 0.5),
-    backchanneling_enabled: formData.get('backchanneling_enabled') === 'true',
     max_call_duration_sec: Math.round(clampNumber(formData.get('max_call_duration_sec'), 180, 900, 480)),
     silence_timeout_sec: Math.round(clampNumber(formData.get('silence_timeout_sec'), 3, 10, 5)),
     voice_speed: clampNumber(formData.get('voice_speed'), 0.25, 2.0, 1.0),
@@ -121,6 +142,14 @@ export async function updateVoicePersona(_prev: VoicePersonaResult | null, formD
       savedToDb: true,
     }
   }
+
+  // Drift indicator: stamp the time we successfully pushed to Vapi.
+  // The UI compares this against agent_configs.updated_at to decide
+  // whether to show "your changes aren't on Vapi yet."
+  await supabase
+    .from('agent_configs')
+    .update({ vapi_synced_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
 
   revalidatePath('/settings/voice')
   return { ok: true }
