@@ -245,12 +245,13 @@ function buildVapiPayload(config: AssistantConfig) {
   if (config.endCallPhrases && config.endCallPhrases.length > 0) {
     payload.endCallPhrases = config.endCallPhrases
   }
+  // Vapi expects this nested under stopSpeakingPlan, not as a top-level
+  // `interruptionThreshold`. The unit is seconds of caller voice activity
+  // required to interrupt the agent.
   if (typeof config.interruptionThresholdSec === 'number') {
-    payload.interruptionThreshold = config.interruptionThresholdSec
+    payload.stopSpeakingPlan = { voiceSeconds: config.interruptionThresholdSec }
   }
-  if (typeof config.backchannelingEnabled === 'boolean') {
-    payload.backchannelingEnabled = config.backchannelingEnabled
-  }
+  // backchannelingEnabled isn't a real Vapi field. Intentionally not sent.
   return payload
 }
 

@@ -11,6 +11,7 @@ import { PhoneNumberSection, type PhoneNumberRow } from '../_components/PhoneNum
 import { ScheduleSettingsForm } from '../../schedule/_components/ScheduleSettingsForm'
 import { AccountSection } from '../_components/AccountSection'
 import { DangerZone } from '../_components/DangerZone'
+import { HoursSection, buildInitialHours } from '../_components/HoursSection'
 
 export default async function SettingsSectionPage({
   params,
@@ -82,8 +83,21 @@ async function renderSection(
       )
 
     // ---- Business --------------------------------------------------------
-    case 'hours':
-      return <Placeholder>Day × hours grid + holidays + timezone. Same shape as onboarding Step 6.</Placeholder>
+    case 'hours': {
+      const { data: cfg } = await supabase
+        .from('agent_configs')
+        .select('business_hours, timezone')
+        .eq('workspace_id', workspaceId)
+        .single()
+      return (
+        <HoursSection
+          initial={{
+            hours: buildInitialHours(cfg?.business_hours),
+            timezone: (cfg?.timezone as string | null) ?? null,
+          }}
+        />
+      )
+    }
 
     case 'services':
       return <Placeholder>Editable per-vertical service catalog with book-direct toggle, pricing notes, and quote-required override.</Placeholder>

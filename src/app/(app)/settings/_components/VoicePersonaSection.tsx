@@ -295,14 +295,6 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
                 className={inputCls + ' w-32'}
               />
             </Field>
-
-            <Field label="Backchanneling">
-              <Checkbox
-                name="backchanneling_enabled"
-                defaultChecked={config.backchanneling_enabled}
-                label="Agent says 'mm-hm', 'got it' while listening"
-              />
-            </Field>
           </FormCard>
         </>
       )}
