@@ -1,14 +1,23 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useState } from 'react'
 import { updateOnCallNumbers, type OnCallResult } from '../oncall-actions'
 
-function formatDisplay(e164: string): string {
-  const digits = e164.replace(/\D/g, '')
-  if (digits.length === 11 && digits.startsWith('1')) {
-    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  }
-  return e164
+// Drops non-digits, ignores a leading 1 (we already prefix +1 server-side),
+// caps at 10 digits, and emits "(XXX) XXX-XXXX" for any length.
+function formatUsPhone(raw: string): string {
+  let digits = raw.replace(/\D/g, '')
+  if (digits.startsWith('1') && digits.length > 10) digits = digits.slice(1)
+  digits = digits.slice(0, 10)
+  if (digits.length === 0) return ''
+  if (digits.length <= 3) return `(${digits}`
+  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
+function initialFromE164(e164: string | null): string {
+  if (!e164) return ''
+  return formatUsPhone(e164)
 }
 
 type Props = {
@@ -24,6 +33,7 @@ type Props = {
 // is jsonb[]) but the UI keeps it simple until pilot feedback asks for it.
 export function OnCallSection({ initialPhone, initialLabel }: Props) {
   const [state, formAction, pending] = useActionState<OnCallResult | null, FormData>(updateOnCallNumbers, null)
+  const [phoneDisplay, setPhoneDisplay] = useState(initialFromE164(initialPhone))
 
   return (
     <form action={formAction} className="space-y-5">
@@ -42,7 +52,11 @@ export function OnCallSection({ initialPhone, initialLabel }: Props) {
             <input
               type="tel"
               name="primary_phone"
-              defaultValue={initialPhone ? formatDisplay(initialPhone) : ''}
+              value={phoneDisplay}
+              onChange={(e) => setPhoneDisplay(formatUsPhone(e.currentTarget.value))}
+              inputMode="numeric"
+              autoComplete="tel-national"
+              maxLength={14}            // (XXX) XXX-XXXX = 14 chars
               placeholder="(512) 555-0143"
               className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-900 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:focus:border-white"
             />
