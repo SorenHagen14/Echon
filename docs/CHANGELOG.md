@@ -87,6 +87,52 @@ Two more settings sections come out of placeholder. Both write to
 
 ---
 
+## [2026-05-08] — Voice tool handlers (Phase 4 step 3)
+
+The agent can now do things mid-call instead of just taking notes for
+post-call processing. Five tools registered on the Vapi assistant:
+
+- **`lookup_customer`** — phone-keyed customer lookup; returns name,
+  address, and a one-line recent-call summary. Lets the agent skip
+  re-asking ("calling about the AC again?").
+- **`check_availability`** — finds 60-min slots inside business hours
+  excluding existing appointments. Returns 2-4 candidate times in the
+  workspace timezone. Computed from the local `appointments` table —
+  real Google Calendar integration is deferred until GCP OAuth is
+  unblocked.
+- **`book_appointment`** — writes the appointment row in real time,
+  upserts the customer if new, conflict-checks the slot, links the
+  call to a case. The caller hangs up with a real booking, not a
+  promise. Returns the confirmation phrasing for the agent to read
+  back.
+- **`escalate_to_human`** — flags the call (`flagged_for_review=true`,
+  `outcome=escalated`), writes an `escalation_requested` event with
+  reason + urgency, returns the callback-window phrasing the agent
+  should use. SMS/email notifications still deferred (blocks on SMTP +
+  SMS provider).
+- **`transfer_call`** — live PSTN transfer to
+  `agent_configs.oncall_numbers[0]` via Vapi's `destination` response
+  block. Marks the call escalated, logs a `transfer_initiated` event.
+
+### New
+- `src/server/voice-tools/`:
+  - `types.ts` — `ToolHandler`, `ToolContext`, `ToolResult` shapes.
+  - `lookup-customer.ts` · `check-availability.ts` ·
+    `book-appointment.ts` · `escalate-to-human.ts` · `transfer-call.ts`
+    — one handler + one Vapi tool definition per file.
+  - `dispatch.ts` — JSON-arg-parsing dispatch table; mirrors Vapi's
+    expected response shape (`{ results: [{ toolCallId, result, ... }] }`).
+
+### Changed
+- `src/app/api/webhooks/vapi/route.ts` — `type: 'tool-calls'` no longer
+  a no-op. Resolves workspace + the existing call row, hands off to
+  the dispatch table, returns Vapi's response synchronously.
+- `src/lib/voice/vapi.ts` — `buildVapiPayload` now includes
+  `model.tools: [...]` with the five tool definitions. The agent
+  config push (onboarding + Settings save) propagates them to Vapi.
+
+---
+
 ## [2026-05-07] — Post-call summarization (Phase 4 step 2)
 
 When a call ends, Haiku reads the transcript and writes back a
