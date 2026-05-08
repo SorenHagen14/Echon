@@ -353,10 +353,11 @@ To do:
 - [x] `/schedule` — Google-Calendar-style week view, operator pill filter,
       week nav, case-modal-on-block-click, in-page Settings tab synced
       with Settings → Schedule (2026-05-07)
-- [ ] `/settings` — 9 sections per `_wireframes/settings.md` (Account,
-      Voice agent, Business hours, Services & pricing, After-hours &
-      escalation, Integrations, Notifications, Team, Billing) +
-      Theme/Appearance picker
+- [ ] `/settings` — 9 sections per `_wireframes/settings.md` (Account ✅,
+      Voice agent ✅, Business hours ✅ 2026-05-08, Services & pricing ✅
+      2026-05-08, After-hours & escalation, Integrations, Notifications,
+      Team ✅, Billing) + Theme/Appearance picker. Both new sections write
+      to `agent_configs` and re-sync the Vapi assistant on save.
 - [ ] When 2nd authed route lands: lift `dashboard/layout.tsx` auth gate
       into a route group `(app)/` so all four routes share it
 - [ ] Verified: real test call from a pilot HVAC shop produces the right

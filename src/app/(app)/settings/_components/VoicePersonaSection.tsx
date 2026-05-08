@@ -94,25 +94,30 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
         </Field>
 
         <Field
-          label={`Voice speed — ${Math.round(voiceSpeed * 100)}%`}
-          hint="How fast the agent talks. 100% = default. 110-120% sounds noticeably brisker without getting choppy."
+          label={`Voice speed — ${voiceSpeed.toFixed(2)}x`}
+          hint="Vapi native scale: 0.25 = very slow, 1.00 = default, 2.00 = very fast. Most owners settle around 1.05–1.20."
         >
           <input
             type="range"
             name="voice_speed"
-            min={0.7}
-            max={1.3}
+            min={0.25}
+            max={2.0}
             step={0.05}
             value={voiceSpeed}
             onChange={(e) => setVoiceSpeed(Number(e.currentTarget.value))}
             className="w-full"
           />
-          {/* Hidden because the legacy speaking_rate column is still in the
-              prompt; we derive its value from the slider. */}
+          <div className="mt-1 flex justify-between text-[10px] text-zinc-400 dark:text-zinc-600">
+            <span>0.25 slow</span>
+            <span>1.00 default</span>
+            <span>2.00 fast</span>
+          </div>
+          {/* Legacy speaking_rate enum still feeds the system prompt's verbal
+              hint — derive it from the slider so they don't drift. */}
           <input
             type="hidden"
             name="speaking_rate"
-            value={voiceSpeed < 0.95 ? 'slow' : voiceSpeed > 1.05 ? 'fast' : 'normal'}
+            value={voiceSpeed < 0.85 ? 'slow' : voiceSpeed > 1.15 ? 'fast' : 'normal'}
           />
         </Field>
 

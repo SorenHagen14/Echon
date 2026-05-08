@@ -4,6 +4,33 @@ All meaningful changes to the project are logged here.
 
 ---
 
+## [2026-05-08] — Settings → Hours and Services & pricing
+
+Two more settings sections come out of placeholder. Both write to
+`agent_configs` and re-sync the Vapi assistant on save (soft-fails as
+"Partial save" if Vapi rejects).
+
+### Hours (`/settings/hours`)
+- Day × hours grid + closed checkbox per day, mirroring onboarding Step 6
+- Timezone dropdown (auto-detected from browser, US zones)
+- Holidays surfaced as a "coming soon" tile (needs schema column)
+
+### Services & pricing (`/settings/services`)
+- Editable per-vertical list backed by `agent_configs.services`
+- Per-row: label edit · Book directly toggle · pricing note · remove · ▲▼ reorder
+- Add from the vertical catalog (chips of unselected options) or add a
+  custom service (slugified key, dedup-on-collision)
+- Vertical badge shows the business type so users know why their catalog
+  looks the way it does
+
+### New files
+- `src/app/(app)/settings/hours-actions.ts`
+- `src/app/(app)/settings/services-actions.ts`
+- `src/app/(app)/settings/_components/HoursSection.tsx`
+- `src/app/(app)/settings/_components/ServicesSection.tsx`
+
+---
+
 ## [2026-05-07] — Post-call summarization (Phase 4 step 2)
 
 When a call ends, Haiku reads the transcript and writes back a

@@ -2,10 +2,7 @@
 
 import { useActionState, useMemo, useState } from 'react'
 import { updateBusinessHours, type HoursResult } from '../hours-actions'
-
-type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
-type DayHours = { open: string; close: string; closed: boolean }
-export type WeekHours = Record<DayKey, DayHours>
+import type { DayKey, DayHours, WeekHours } from './hours-shape'
 
 const DAYS: { key: DayKey; label: string }[] = [
   { key: 'mon', label: 'Monday' },
@@ -31,15 +28,6 @@ const TIMEZONES: { value: string; label: string }[] = [
 
 const inputCls =
   'rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 focus:border-zinc-900 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:focus:border-white'
-
-function defaultHours(): WeekHours {
-  const weekday = (closed = false): DayHours => ({ open: '08:00', close: '17:00', closed })
-  return {
-    mon: weekday(), tue: weekday(), wed: weekday(),
-    thu: weekday(), fri: weekday(),
-    sat: weekday(true), sun: weekday(true),
-  }
-}
 
 type Props = {
   initial: { hours: WeekHours; timezone: string | null }
@@ -161,14 +149,3 @@ export function HoursSection({ initial }: Props) {
   )
 }
 
-export function buildInitialHours(raw: unknown): WeekHours {
-  if (raw && typeof raw === 'object') {
-    const r = raw as Record<string, unknown>
-    const ok = DAYS.every(({ key }) => {
-      const d = r[key] as Record<string, unknown> | undefined
-      return d && typeof d.open === 'string' && typeof d.close === 'string' && typeof d.closed === 'boolean'
-    })
-    if (ok) return r as unknown as WeekHours
-  }
-  return defaultHours()
-}

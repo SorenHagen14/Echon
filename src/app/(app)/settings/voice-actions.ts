@@ -86,7 +86,7 @@ export async function updateVoicePersona(_prev: VoicePersonaResult | null, formD
     backchanneling_enabled: formData.get('backchanneling_enabled') === 'true',
     max_call_duration_sec: Math.round(clampNumber(formData.get('max_call_duration_sec'), 180, 900, 480)),
     silence_timeout_sec: Math.round(clampNumber(formData.get('silence_timeout_sec'), 3, 10, 5)),
-    voice_speed: clampNumber(formData.get('voice_speed'), 0.5, 2.0, 1.0),
+    voice_speed: clampNumber(formData.get('voice_speed'), 0.25, 2.0, 1.0),
 
     use_custom_system_prompt: useCustom,
     custom_system_prompt: useCustom ? newCustom : oldCustom,

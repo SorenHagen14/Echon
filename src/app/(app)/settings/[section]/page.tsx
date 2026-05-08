@@ -11,7 +11,11 @@ import { PhoneNumberSection, type PhoneNumberRow } from '../_components/PhoneNum
 import { ScheduleSettingsForm } from '../../schedule/_components/ScheduleSettingsForm'
 import { AccountSection } from '../_components/AccountSection'
 import { DangerZone } from '../_components/DangerZone'
-import { HoursSection, buildInitialHours } from '../_components/HoursSection'
+import { HoursSection } from '../_components/HoursSection'
+import { buildInitialHours } from '../_components/hours-shape'
+import { ServicesSection } from '../_components/ServicesSection'
+import { normalizeServices } from '../_components/services-shape'
+import { BUSINESS_TYPE_OPTIONS, getServiceCatalog, type BusinessType } from '@/app/onboarding/_constants'
 
 export default async function SettingsSectionPage({
   params,
@@ -99,8 +103,26 @@ async function renderSection(
       )
     }
 
-    case 'services':
-      return <Placeholder>Editable per-vertical service catalog with book-direct toggle, pricing notes, and quote-required override.</Placeholder>
+    case 'services': {
+      const [cfgRes, wsRes] = await Promise.all([
+        supabase.from('agent_configs').select('services').eq('workspace_id', workspaceId).single(),
+        supabase.from('workspaces').select('business_type, business_type_other').eq('id', workspaceId).single(),
+      ])
+      const businessType = (wsRes.data?.business_type as BusinessType | null) ?? null
+      const catalog = getServiceCatalog(businessType)
+      const btOpt = BUSINESS_TYPE_OPTIONS.find((o) => o.value === businessType)
+      const businessTypeLabel =
+        businessType === 'other'
+          ? (wsRes.data?.business_type_other as string | null) || 'Other'
+          : btOpt?.label ?? null
+      return (
+        <ServicesSection
+          initial={normalizeServices(cfgRes.data?.services)}
+          catalog={catalog}
+          businessTypeLabel={businessTypeLabel}
+        />
+      )
+    }
 
     case 'schedule': {
       const { data: row } = await supabase
@@ -155,11 +177,20 @@ async function renderSection(
       const { buildSystemPrompt } = await import('@/lib/voice')
       const generatedPreview = buildSystemPrompt(buildAssistantConfig(cfg, wsRes.data ?? null))
       const { VoicePersonaSection } = await import('../_components/VoicePersonaSection')
+
+      // Default first-message script: "Thanks for calling [Business],
+      // this is [Agent]. How can I help?" Backfilled when greeting is
+      // blank so the user always sees a usable starting point in the UI.
+      const businessName = (cfg.business_name as string | null) ?? 'our shop'
+      const agentName = (cfg.agent_name as string | null) ?? 'Riley'
+      const defaultGreeting = `Thanks for calling ${businessName}, this is ${agentName}. How can I help?`
+      const greetingValue = ((cfg.greeting as string | null) ?? '').trim() || defaultGreeting
+
       return (
         <VoicePersonaSection
           config={{
-            agent_name: (cfg.agent_name as string | null) ?? null,
-            greeting: (cfg.greeting as string | null) ?? null,
+            agent_name: agentName,
+            greeting: greetingValue,
             tone: ((cfg.tone as string | null) ?? 'friendly') as 'friendly' | 'professional' | 'direct',
             speaking_rate: ((cfg.speaking_rate as string | null) ?? 'normal') as 'slow' | 'normal' | 'fast',
             recording_enabled: Boolean(cfg.recording_enabled ?? true),

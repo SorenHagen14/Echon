@@ -111,10 +111,85 @@ const TRADE_PROFILES: Record<string, TradeProfile> = {
   },
 }
 
+// Verticals not in the `business_type` enum but common enough that we
+// want trade-aware context. Matched by substring against the
+// `businessTypeOther` free-text when business_type='other'.
+const KNOWN_OTHER_TRADES: Array<{ match: string[]; profile: TradeProfile }> = [
+  {
+    match: ['pool', 'spa', 'hot tub'],
+    profile: {
+      trade: 'pool service',
+      systemNoun: 'pool',
+      exampleSystems: 'pump, filter, heater, chlorinator, salt cell, automation, vacuum',
+      emergencyKeywords: 'major leak, pump failure during heatwave, electrical issue near water, green water at a public/event pool, swimmer ill',
+      commonIssues: 'Pump and motor problems, leaks, green/cloudy water, heater outages, equipment replacement, weekly maintenance setup.',
+    },
+  },
+  {
+    match: ['appliance'],
+    profile: {
+      trade: 'appliance repair',
+      systemNoun: 'appliance',
+      exampleSystems: 'refrigerator, freezer, oven, range, dishwasher, washer, dryer',
+      emergencyKeywords: 'gas smell, burning smell, smoke, water leaking onto floor, freezer thawing with food at risk',
+      commonIssues: 'Refrigerators not cooling, washers leaking, dryers not heating, ovens not igniting, error codes.',
+    },
+  },
+  {
+    match: ['garage door', 'overhead door'],
+    profile: {
+      trade: 'garage door',
+      systemNoun: 'door',
+      exampleSystems: 'opener, springs, cables, rollers, panels, sensors',
+      emergencyKeywords: 'door stuck open at night, broken spring with car trapped inside, snapped cable',
+      commonIssues: 'Broken springs, cable replacement, opener failures, panel damage, sensor alignment.',
+    },
+  },
+  {
+    match: ['pest', 'exterminator'],
+    profile: {
+      trade: 'pest control',
+      systemNoun: 'infestation',
+      exampleSystems: 'ants, roaches, mice, rats, bedbugs, termites, wasps, hornets',
+      emergencyKeywords: 'wasp/hornet nest at entrance, bedbug bites with kids, rodent in living space, allergic reaction',
+      commonIssues: 'Recurring service quotes, one-time treatment, inspection requests, follow-up after treatment.',
+    },
+  },
+  {
+    match: ['locksmith'],
+    profile: {
+      trade: 'locksmith',
+      systemNoun: 'lock',
+      exampleSystems: 'deadbolt, knob, lever, smart lock, automotive key, transponder',
+      emergencyKeywords: 'locked out of home in cold/heat, locked out of car with child or pet inside, break-in damage',
+      commonIssues: 'Lockouts, rekey after move-in, key duplication, smart-lock installs, automotive keys.',
+    },
+  },
+  {
+    match: ['detail', 'auto detailing', 'car detail'],
+    profile: {
+      trade: 'auto detailing',
+      systemNoun: 'vehicle',
+      exampleSystems: 'interior, exterior, headlights, paint, wheels, engine bay',
+      emergencyKeywords: 'pet/biohazard cleanup, fresh stain that needs same-day attention',
+      commonIssues: 'Routine details, pre-sale prep, ceramic coating quotes, interior shampoo, paint correction estimates.',
+    },
+  },
+]
+
 function tradeProfile(config: AssistantConfig): TradeProfile {
   const key = (config.businessType ?? '').toLowerCase()
   if (key in TRADE_PROFILES) return TRADE_PROFILES[key]
-  // 'other' or null falls back to a neutral service-business profile.
+
+  // business_type='other' — try to match the free-text against known
+  // verticals before falling back to a neutral profile.
+  if (key === 'other' && config.businessTypeOther) {
+    const other = config.businessTypeOther.toLowerCase()
+    for (const entry of KNOWN_OTHER_TRADES) {
+      if (entry.match.some((m) => other.includes(m))) return entry.profile
+    }
+  }
+
   return {
     trade: config.businessTypeOther?.trim() || 'service',
     systemNoun: 'system',
@@ -187,6 +262,25 @@ VOICE STYLE
 - Use ${profile.trade}-specific terminology when natural ("the condenser fan", "the air handler") — avoid vague words like "the unit" or "the thing."
 - Confirmations are casual: "Got it — 1234 Oak Street, right?" Not: "Let me read that back: one-two-three-four Oak Street."
 - One short sentence per turn whenever possible. Two if you must. Never three.
+
+UPSET CALLERS — recognize and handle
+Most callers are fine. A small number aren't, and you must handle them differently.
+
+Signals (any one is enough):
+- Raised voice or sustained loud volume.
+- Cursing, sarcasm, or escalating language ("this is ridiculous", "I've been waiting forever", "are you kidding me").
+- Repeated mention of how long they've been waiting, how many times they've called, or being passed around.
+- Threats to leave a review, switch providers, or speak to an owner/manager.
+- Refusal to answer your questions; pushing past the script.
+
+When you detect any of those:
+- Switch to short, calm, confident sentences. Don't speed up or get apologetic.
+- Acknowledge once, briefly: "I hear you — let me get someone who can fix this now."
+- Skip the rest of the data-collection flow. Capture just name + callback number.
+- ESCALATE immediately. Do not try to resolve, quote, or book.
+- Do NOT say "I understand how frustrating that must be" — corporate-apology phrasing makes upset callers angrier. Keep it specific and action-oriented.
+
+Regular callers — even-toned, willing to answer questions, give information freely. Run the normal flow above.
 
 DO NOT
 - DO NOT repeat the caller back to themselves. They just said it. Saying "So you said you have a furnace issue" wastes their time and signals you weren't listening. Acknowledge and move on.
