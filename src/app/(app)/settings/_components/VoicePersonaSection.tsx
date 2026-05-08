@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useState } from 'react'
+import { useActionState, useEffect, useState } from 'react'
 import { revertSystemPrompt, updateVoicePersona, type VoicePersonaResult } from '../voice-actions'
 
 export type VoicePersonaConfig = {
@@ -39,12 +39,13 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
     null,
   )
 
-  // Persist the toggle so power users don't have to reflip every visit.
-  if (typeof window !== 'undefined') {
-    if (localStorage.getItem(ADVANCED_KEY) === '1' && !showAdvanced) {
-      setShowAdvanced(true)
-    }
-  }
+  // Read the persisted toggle once after hydration, never during render —
+  // otherwise the SSR'd "Show" button hydrates into a "Hide" button and
+  // React panics about a mismatch.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (localStorage.getItem(ADVANCED_KEY) === '1') setShowAdvanced(true)
+  }, [])
   function setShowAdvancedPersisted(v: boolean) {
     setShowAdvanced(v)
     if (typeof window !== 'undefined') {
