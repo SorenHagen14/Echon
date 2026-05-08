@@ -2,6 +2,7 @@ import { NextResponse, after } from 'next/server'
 import { timingSafeEqual } from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/service'
 import { processCallEnd } from '@/server/process-call-end'
+import { dispatchToolCalls, type ToolCall } from '@/server/voice-tools/dispatch'
 import {
   callerPhone,
   calleePhone,
@@ -78,9 +79,10 @@ export async function POST(req: Request) {
       case 'end-of-call-report':
         if (!isTest) await handleEndOfCallReport(message)
         break
-      case 'tool-calls':
-        // Routed in Phase 4 voice-tools work; ignore for now.
-        break
+      case 'tool-calls': {
+        const toolResponse = await handleToolCalls(message)
+        return NextResponse.json(toolResponse)
+      }
       case 'transcript':
       case 'speech-update':
       case 'conversation-update':
@@ -268,4 +270,52 @@ async function handleEndOfCallReport(m: VapiMessage): Promise<void> {
       console.error('[vapi-webhook] processCallEnd failed', { callId: finalCallId, err: String(e) })
     }
   })
+}
+
+// `tool-calls` events fire mid-call when the agent invokes a function.
+// Vapi waits for our response (with timeout) before continuing the
+// conversation, so this path is synchronous — no `after()`.
+async function handleToolCalls(m: VapiMessage): Promise<{ results: unknown[] }> {
+  const callId = vapiCallId(m)
+  const callee = calleePhone(m)
+  const caller = callerPhone(m)
+
+  // Without a workspace we can't safely run any handler. Return a soft
+  // failure to Vapi so the agent says something graceful instead of crashing.
+  if (!callId || !callee) {
+    return { results: [{ result: '', error: 'Missing call context' }] }
+  }
+
+  const supabase = createServiceClient()
+  const workspaceId = await workspaceIdForNumber(supabase, callee)
+  if (!workspaceId) {
+    console.warn('[vapi-webhook] tool-calls: no workspace for callee', { callId, callee })
+    return { results: [{ result: '', error: 'Workspace not found' }] }
+  }
+
+  // Find the internal calls.id if status-update has already run for this
+  // Vapi call. Tools that need to attach data to the call (escalation
+  // reason, appointment.call_id) read this.
+  const { data: callRow } = await supabase
+    .from('calls')
+    .select('id')
+    .eq('vapi_call_id', callId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  // Vapi has shifted the field name across SDK versions; accept both.
+  const rawCalls = (m as unknown as { toolCallList?: unknown; toolCalls?: unknown }).toolCallList
+    ?? (m as unknown as { toolCalls?: unknown }).toolCalls
+  const toolCalls = Array.isArray(rawCalls) ? (rawCalls as ToolCall[]) : []
+
+  return dispatchToolCalls(
+    {
+      supabase,
+      workspaceId,
+      vapiCallId: callId,
+      callerPhone: caller,
+      callRowId: (callRow?.id as string | undefined) ?? null,
+    },
+    toolCalls,
+  )
 }

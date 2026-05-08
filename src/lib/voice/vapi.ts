@@ -5,6 +5,13 @@ import type {
   VoiceProvider,
   WebCallToken,
 } from './types'
+import {
+  bookAppointmentToolDef,
+  checkAvailabilityToolDef,
+  escalateToHumanToolDef,
+  lookupCustomerToolDef,
+  transferCallToolDef,
+} from '@/server/voice-tools/dispatch'
 
 const VAPI_BASE = 'https://api.vapi.ai'
 
@@ -451,6 +458,17 @@ function buildVapiPayload(config: AssistantConfig) {
     provider: 'anthropic',
     model: MODEL_BY_TIER[tier],
     messages: [{ role: 'system', content: systemPrompt }],
+    // Mid-call function-calling. Each tool routes back to our webhook
+    // (`type: 'tool-calls'`) which dispatches by name in
+    // `src/server/voice-tools/dispatch.ts`. The agent picks tools by
+    // their description; keep those crisp.
+    tools: [
+      lookupCustomerToolDef,
+      checkAvailabilityToolDef,
+      bookAppointmentToolDef,
+      escalateToHumanToolDef,
+      transferCallToolDef,
+    ],
   }
   if (typeof config.temperature === 'number') model.temperature = config.temperature
   if (typeof config.maxTokens === 'number') model.maxTokens = config.maxTokens

@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
 import { resolveAttention } from '../actions'
-import { CustomerLink } from '@/app/_components/customer-profile/CustomerLink'
 import { CallLink } from '@/app/_components/calls/CallLink'
 
 type CallRow = {
@@ -150,41 +149,25 @@ export async function NeedsAttention({ workspaceId }: { workspaceId: string }) {
   if (ranked.length === 0) {
     return (
       <Section title="Needs attention">
-        <div className="rounded-md border border-dashed border-zinc-300 bg-white px-6 py-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Nothing needs your attention right now.
-          </p>
-        </div>
+        <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+          All caught up.
+        </p>
       </Section>
     )
   }
 
   return (
-    <Section title="Needs attention">
-      <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+    <Section title="Needs attention" highlight>
+      <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border-2 border-amber-200 bg-white dark:divide-zinc-800 dark:border-amber-900/50 dark:bg-zinc-900">
         {ranked.map(({ call, reason }) => {
           const name = call.customer?.name ?? formatPhone(call.caller_phone)
           return (
-            <li key={call.id} className="flex items-start gap-3 px-4 py-3 text-sm transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  {call.customer?.id ? (
-                    <CustomerLink
-                      customerId={call.customer.id}
-                      className="truncate text-left font-medium text-zinc-900 hover:underline dark:text-white"
-                    >
-                      {name}
-                    </CustomerLink>
-                  ) : (
-                    <span className="truncate font-medium text-zinc-900 dark:text-white">{name}</span>
-                  )}
-                  <span className={`${REASON_PILL_BASE} ${reason.className}`}>{reason.label}</span>
-                </div>
-                <CallLink callId={call.id} className="block w-full text-left">
-                  <p className="mt-0.5 truncate text-xs text-zinc-600 dark:text-zinc-400">{reason.description}</p>
-                  <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-500">{formatRelativeTime(call.started_at)}</p>
-                </CallLink>
-              </div>
+            <li key={call.id} className="flex items-center gap-3 px-4 py-3 text-sm transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+              <CallLink callId={call.id} className="flex flex-1 min-w-0 items-center gap-2 text-left">
+                <span className="truncate font-medium text-zinc-900 dark:text-white">{name}</span>
+                <span className={`${REASON_PILL_BASE} ${reason.className}`}>{reason.label}</span>
+                <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-500">{formatRelativeTime(call.started_at)}</span>
+              </CallLink>
               <div className="flex shrink-0 items-center gap-2">
                 <CallLink
                   callId={call.id}
@@ -226,10 +209,24 @@ export async function NeedsAttention({ workspaceId }: { workspaceId: string }) {
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  highlight,
+  children,
+}: {
+  title: string
+  highlight?: boolean
+  children: React.ReactNode
+}) {
   return (
     <section>
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+      <h2
+        className={`mb-3 text-sm font-semibold uppercase tracking-wide ${
+          highlight
+            ? 'text-amber-700 dark:text-amber-400'
+            : 'text-zinc-500 dark:text-zinc-400'
+        }`}
+      >
         {title}
       </h2>
       {children}

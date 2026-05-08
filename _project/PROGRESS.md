@@ -238,12 +238,30 @@ Done — onboarding-blocking surface:
       gated) for fast iteration.
 
 Still to land (non-blocking for Phase 6 dashboard work):
-- [ ] `src/app/api/voice/tools/` — function-call handlers invoked mid-call:
-  - `lookup_customer` — phone lookup, returns existing record or null
-  - `check_availability` — calendar availability for a date range
-  - `book_appointment` — creates appointment + GCal event
-  - `escalate_to_human` — fires SMS/push to on-call; returns ack
-  - `transfer_call` — Vapi live transfer to on-call number
+- [x] Voice tool handlers (2026-05-08) — `src/server/voice-tools/`:
+  - `lookup_customer` — phone-keyed customer lookup, returns name +
+    address + recent-call summary so the agent can skip re-asking.
+  - `check_availability` — computes 30-min slots inside business hours
+    minus existing appointments, returns 2-4 candidate times. **Real
+    calendar integration deferred** until Google Calendar OAuth is
+    unblocked; for now this works against the workspace's own
+    `appointments` table only.
+  - `book_appointment` — writes the appointment row mid-call, upserts
+    customer if new, conflict-checks against existing bookings, links
+    the call to a case. Caller hangs up with a real booking, not a
+    promise.
+  - `escalate_to_human` — flags the call, writes a `call_events`
+    `escalation_requested` row with reason + urgency. Returns the
+    callback-window phrasing for the agent to read back. **SMS/email
+    notifications still deferred.**
+  - `transfer_call` — live PSTN transfer via Vapi `destination` block,
+    pulled from `agent_configs.oncall_numbers`. Agent says one phrase,
+    Vapi handles the handoff.
+  All five tools registered on the assistant payload (`model.tools`)
+  in `buildVapiPayload`. The webhook handler now dispatches
+  `type: 'tool-calls'` synchronously through
+  `src/server/voice-tools/dispatch.ts` and returns results in Vapi's
+  expected shape.
 - [x] Webhook DB writes (2026-05-07, **verified end-to-end with a real
       Vapi call**): upserts `calls` row on `status-update` (workspace
       resolved via `phone_numbers.e164_number = callee_phone`, customer

@@ -110,10 +110,25 @@ export async function UpcomingAppointments({ workspaceId }: { workspaceId: strin
             const badge = STATUS_BADGES[row.status] ?? STATUS_BADGES.booked
             const customerName = row.customer?.name ?? formatPhone(row.customer?.primary_phone ?? null) ?? 'Unknown'
             const address = row.service_address ?? row.customer?.address ?? null
-            const linkHref = row.call_id ? `/calls/${row.call_id}` : '#'
-            const linkProps = row.call_id
-              ? {}
-              : { 'aria-disabled': true, tabIndex: -1, onClick: undefined }
+            const isClickable = !!row.call_id
+
+            const rowInner = (
+              <>
+                <span className="w-20 shrink-0 tabular-nums text-zinc-700 dark:text-zinc-300">
+                  {formatTime(row.scheduled_for)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium text-zinc-900 dark:text-white">{customerName}</div>
+                  <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                    {row.service_type}
+                    {address && <> · {address}</>}
+                  </div>
+                </div>
+                <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}>
+                  {badge.label}
+                </span>
+              </>
+            )
 
             return (
               <li key={row.id}>
@@ -122,25 +137,18 @@ export async function UpcomingAppointments({ workspaceId }: { workspaceId: strin
                     {bucket === 'today' ? 'Today' : 'Tomorrow'}
                   </div>
                 )}
-                <Link
-                  href={linkHref}
-                  {...linkProps}
-                  className="flex items-center gap-4 px-4 py-3 text-sm transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-                >
-                  <span className="w-20 shrink-0 tabular-nums text-zinc-700 dark:text-zinc-300">
-                    {formatTime(row.scheduled_for)}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-zinc-900 dark:text-white">{customerName}</div>
-                    <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">
-                      {row.service_type}
-                      {address && <> · {address}</>}
-                    </div>
+                {isClickable ? (
+                  <Link
+                    href={`/calls/${row.call_id}`}
+                    className="flex items-center gap-4 px-4 py-3 text-sm transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                  >
+                    {rowInner}
+                  </Link>
+                ) : (
+                  <div className="flex items-center gap-4 px-4 py-3 text-sm">
+                    {rowInner}
                   </div>
-                  <span className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}>
-                    {badge.label}
-                  </span>
-                </Link>
+                )}
               </li>
             )
           })}

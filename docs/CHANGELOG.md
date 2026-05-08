@@ -4,7 +4,33 @@ All meaningful changes to the project are logged here.
 
 ---
 
-## [2026-05-08] — Custom operator role labels + access tiers (data-only)
+## [2026-05-08] — Dashboard: simpler, more direct
+
+Round of cleanup driven by "I like everything super simple and easy to read":
+
+### Tiles
+- Delta badges now color-encode direction: green for +N%, red for −N%, zinc for flat. Sign is shown explicitly (`+15%` / `−12%`).
+- Removed the "new" badge (the prior=0 case). When there's nothing to compare against, no badge — the raw count is the signal.
+- Sparkline + conversion bars kept; user wanted to keep the per-tile visual variety.
+- Comparison window already aligns to the picker (last 7d vs the 7d before, etc.) — confirmed, no math change needed.
+
+### Recent calls
+- Cut from 10 rows to 5.
+- Dropped the per-call summary bullets and duration. Each row is now one line: name · outcome badge (with appointment time when booked) · relative time.
+- Customer name no longer opens the customer modal — the entire row is a CallLink to the call detail.
+- Added a "View all in Calls →" link below the list.
+- Empty state simplified (one neutral line, no celebratory copy).
+
+### Needs attention
+- Empty state replaced with a single green line: `All caught up.`
+- When non-empty, section header uses an amber tone and the list gets a 2px amber border so the section stands out as actionable.
+- Removed the redundant reason-description sentence — the pill (Flagged / Escalated / Repeat caller / Quote requested) is the explanation.
+
+### Upcoming appointments
+- Rows without a `call_id` no longer get a hover state — they're plainly non-clickable.
+
+### Header
+- Refresh button removed. `Cmd-R` exists for free.
 
 Two new columns on `operators` (migration 021):
 - `role_label text` — free-text custom role, displayed as a pill

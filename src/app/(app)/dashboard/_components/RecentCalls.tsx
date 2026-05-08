@@ -117,36 +117,12 @@ export async function RecentCalls({ workspaceId }: { workspaceId: string }) {
     )
   }
 
-  // Repeat-caller detection: any caller_phone that appears 2+ times in the last
-  // 7 days needs human eyes. Computed from a single workspace-scoped query so
-  // we catch repeats even when not all instances are in the limit-10 window.
-  const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString()
-  const { data: recentByPhone } = await supabase
-    .from('calls')
-    .select('caller_phone')
-    .eq('workspace_id', workspaceId)
-    .gte('started_at', sevenDaysAgo)
-    .not('caller_phone', 'is', null)
-
-  const phoneCounts = new Map<string, number>()
-  recentByPhone?.forEach((row) => {
-    const p = row.caller_phone as string | null
-    if (!p) return
-    phoneCounts.set(p, (phoneCounts.get(p) ?? 0) + 1)
-  })
-  const repeatPhones = new Set(
-    Array.from(phoneCounts.entries()).filter(([, n]) => n >= 2).map(([p]) => p),
-  )
-
   return (
     <Section title="Recent calls">
       <ul className="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
         {calls.map((call) => {
           const badge = OUTCOME_BADGES[call.outcome] ?? OUTCOME_BADGES.processing
           const name = call.customer?.name ?? formatPhone(call.caller_phone)
-          const isRepeat = call.caller_phone ? repeatPhones.has(call.caller_phone) : false
-          const repeatCount = call.caller_phone ? phoneCounts.get(call.caller_phone) ?? 0 : 0
-          const bullets = summaryLines(call.summary)
           const appointment = call.outcome === 'booked' && call.appointments && call.appointments.length > 0
             ? call.appointments[0]
             : null
@@ -154,68 +130,36 @@ export async function RecentCalls({ workspaceId }: { workspaceId: string }) {
           return (
             <li key={call.id} className="flex transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
               <span className={`w-1 shrink-0 ${badge.bar}`} aria-hidden="true" />
-              <div className="flex-1 px-4 py-3 text-sm">
-                {/* Top row — customer name is its own click target (opens
-                    customer modal); the badge is a CallLink (opens call
-                    modal). Two distinct sibling buttons; no nesting. */}
-                <div className="flex items-center gap-3">
-                  {call.customer?.id ? (
-                    <CustomerLink
-                      customerId={call.customer.id}
-                      className="flex-1 truncate text-left font-medium text-zinc-900 hover:underline dark:text-white"
-                    >
-                      {name}
-                    </CustomerLink>
-                  ) : (
-                    <span className="flex-1 truncate font-medium text-zinc-900 dark:text-white">
-                      {name}
+              <CallLink callId={call.id} className="flex flex-1 items-center gap-3 px-4 py-3 text-sm">
+                <span className="flex-1 truncate font-medium text-zinc-900 dark:text-white">
+                  {name}
+                </span>
+                <span
+                  className={`inline-flex shrink-0 justify-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
+                >
+                  {badge.label}
+                  {appointment && (
+                    <span className="ml-1 font-normal opacity-90">
+                      · {formatAppointment(appointment.scheduled_for)}
                     </span>
                   )}
-                  {isRepeat && (
-                    <span
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-                      title={`Called ${repeatCount} times in the last 7 days — consider human follow-up`}
-                    >
-                      Repeat caller · {repeatCount}×
-                    </span>
-                  )}
-                  <CallLink
-                    callId={call.id}
-                    className={`inline-flex shrink-0 justify-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
-                  >
-                    {badge.label}
-                    {appointment && (
-                      <span className="ml-1 font-normal opacity-90">
-                        · {formatAppointment(appointment.scheduled_for)}
-                      </span>
-                    )}
-                  </CallLink>
-                </div>
-
-                {/* Rest of the row — bullets + relative time — is one
-                    big CallLink so most of the row stays clickable. */}
-                <CallLink callId={call.id} className="mt-1.5 block w-full text-left">
-                  {bullets.length > 0 && (
-                    <ul className="space-y-0.5 text-xs text-zinc-600 dark:text-zinc-400">
-                      {bullets.slice(0, 2).map((b, i) => (
-                        <li key={i} className="flex gap-1.5">
-                          <span aria-hidden="true" className="text-zinc-400 dark:text-zinc-600">•</span>
-                          <span className="truncate">{b}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="mt-1.5 flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
-                    <span>{formatRelativeTime(call.started_at)}</span>
-                    <span aria-hidden="true">·</span>
-                    <span className="tabular-nums">{formatDuration(call.duration_sec)}</span>
-                  </div>
-                </CallLink>
-              </div>
+                </span>
+                <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
+                  {formatRelativeTime(call.started_at)}
+                </span>
+              </CallLink>
             </li>
           )
         })}
       </ul>
+      <div className="mt-2 text-right">
+        <Link
+          href="/calls"
+          className="text-xs font-medium text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+        >
+          View all in Calls →
+        </Link>
+      </div>
     </Section>
   )
 }
