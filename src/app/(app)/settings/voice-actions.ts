@@ -155,6 +155,50 @@ export async function updateVoicePersona(_prev: VoicePersonaResult | null, formD
   return { ok: true }
 }
 
+// Reset to Echon's auto-generated prompt. Disables custom mode and
+// clears the stored custom prompt so the next sync uses the live
+// buildSystemPrompt() output. Useful when an older snapshot of the
+// auto-gen has frozen and is blocking new prompt updates from
+// landing on Vapi.
+export async function resetToDefaultPrompt(): Promise<void> {
+  const { supabase, workspaceId } = await requireWorkspace()
+
+  await supabase
+    .from('agent_configs')
+    .update({
+      use_custom_system_prompt: false,
+      // Keep custom_system_prompt around — moves to previous slot in
+      // case the user wants to recover.
+      previous_custom_system_prompt: null,
+    })
+    .eq('workspace_id', workspaceId)
+
+  // Bump previous slot too — read current first so we don't lose it.
+  const { data: row } = await supabase
+    .from('agent_configs')
+    .select('custom_system_prompt')
+    .eq('workspace_id', workspaceId)
+    .single()
+  if (row?.custom_system_prompt) {
+    await supabase
+      .from('agent_configs')
+      .update({ previous_custom_system_prompt: row.custom_system_prompt })
+      .eq('workspace_id', workspaceId)
+  }
+
+  try {
+    await syncVapiAssistant(supabase, workspaceId, { throwOnError: true })
+    await supabase
+      .from('agent_configs')
+      .update({ vapi_synced_at: new Date().toISOString() })
+      .eq('workspace_id', workspaceId)
+  } catch (e) {
+    console.warn('[resetToDefaultPrompt] Vapi sync failed', e)
+  }
+
+  revalidatePath('/settings/voice')
+}
+
 // One-step undo: swap `custom_system_prompt` ↔ `previous_custom_system_prompt`.
 // Invoked from a separate form so the row's other state isn't disturbed.
 export async function revertSystemPrompt(): Promise<void> {

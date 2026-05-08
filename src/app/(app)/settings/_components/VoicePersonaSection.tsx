@@ -1,7 +1,7 @@
 'use client'
 
 import { useActionState, useEffect, useState } from 'react'
-import { revertSystemPrompt, updateVoicePersona, type VoicePersonaResult } from '../voice-actions'
+import { resetToDefaultPrompt, revertSystemPrompt, updateVoicePersona, type VoicePersonaResult } from '../voice-actions'
 
 export type VoicePersonaConfig = {
   agent_name: string | null
@@ -54,6 +54,12 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
   async function onRevert() {
     if (!confirm('Revert the system prompt to the previous version? Your current prompt will be saved as the new "previous" version.')) return
     await revertSystemPrompt()
+    window.location.reload()
+  }
+
+  async function onResetToDefault() {
+    if (!confirm('Reset to Echon\'s default prompt? Your custom prompt will be saved to the "previous" slot in case you want it back. The agent will start using the live auto-generated prompt on the next call.')) return
+    await resetToDefaultPrompt()
     window.location.reload()
   }
 
@@ -231,6 +237,24 @@ export function VoicePersonaSection({ config }: { config: VoicePersonaConfig }) 
                   {config.generated_system_prompt_preview}
                 </pre>
               </details>
+            )}
+
+            {/* Escape hatch: a saved custom prompt that's drifted from
+                Echon's evolving defaults can quietly block prompt updates.
+                One-click reset puts the auto-gen back in the driver's seat. */}
+            {(config.use_custom_system_prompt || config.custom_system_prompt) && (
+              <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                <button
+                  type="button"
+                  onClick={onResetToDefault}
+                  className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  Reset to Echon&apos;s default prompt
+                </button>
+                <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                  Disables custom mode and pushes the live auto-generated prompt to Vapi. Your saved prompt moves to the &ldquo;previous&rdquo; slot.
+                </p>
+              </div>
             )}
           </FormCard>
 
