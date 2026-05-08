@@ -10,7 +10,7 @@ import {
   checkAvailabilityToolDef,
   escalateToHumanToolDef,
   lookupCustomerToolDef,
-  transferCallToolDef,
+  buildTransferCallTool,
 } from '@/server/voice-tools/dispatch'
 
 const VAPI_BASE = 'https://api.vapi.ai'
@@ -306,9 +306,17 @@ export function buildSystemPrompt(config: AssistantConfig): string {
     ? '\nRECORDING DISCLOSURE — REQUIRED BY LAW IN THIS STATE\nRight after the greeting, before any other questions, say:\n  "Quick note — this call may be recorded for quality. Is that okay?"\nIf they say no, immediately say "No problem" and continue without further mention. If they say yes (or anything affirmative), continue.\nDo this on every call. Do not skip it, even if the caller jumps straight to their problem — pause them politely once: "Got it — before we go on, I just have to check: this call may be recorded for quality. Okay?" Then proceed.\n'
     : ''
 
+  // Default escalation triggers. When an on-call number is configured we
+  // strip the "asks for a human" line because that case becomes a
+  // TRANSFER (live handoff), not an ESCALATE (tag + SMS + dashboard).
+  // Keeping it in both lists would muddy the distinction.
+  const defaultTriggers = (Array.isArray(config.oncallNumbers) && config.oncallNumbers.some((n) => typeof n === 'string' && n.trim()))
+    ? '- Caller is upset, cursing, or threatening\n- Caller mentions emergency keywords\n- Caller has an issue outside the services we offer'
+    : '- Caller asks for a human or representative\n- Caller is upset, cursing, or threatening\n- Caller mentions emergency keywords\n- Caller has an issue outside the services we offer'
+
   const escalateBlock = (config.escalationTriggers && config.escalationTriggers.length > 0)
     ? config.escalationTriggers.map((t) => `- ${t}`).join('\n')
-    : '- Caller asks for a human or representative\n- Caller is upset, cursing, or threatening\n- Caller mentions emergency keywords\n- Caller has an issue outside the services we offer'
+    : defaultTriggers
 
   const noEscalateBlock = (config.escalationNonTriggers && config.escalationNonTriggers.length > 0)
     ? config.escalationNonTriggers.map((t) => `- ${t}`).join('\n')
@@ -322,6 +330,8 @@ export function buildSystemPrompt(config: AssistantConfig): string {
   })()
 
   const { canBook, canMessage, canFaq } = resolveCapabilities(config)
+
+  const hasOnCall = Array.isArray(config.oncallNumbers) && config.oncallNumbers.some((n) => typeof n === 'string' && n.trim())
 
   const jobParts: string[] = []
   if (canBook) jobParts.push('book service appointments and route quote requests')
@@ -342,7 +352,10 @@ export function buildSystemPrompt(config: AssistantConfig): string {
   if (!canBook && !canMessage) {
     outcomeLines.push('• MESSAGE (minimal): capture name + callback number + one sentence on why they called, then tell them the team will reach out. Do not attempt to book or resolve the request.')
   }
-  outcomeLines.push('• ESCALATE when ANY of the conditions in "ESCALATE IMMEDIATELY" below is true. Promise a callback within a stated window.')
+  if (hasOnCall) {
+    outcomeLines.push('• TRANSFER (live handoff to a human, RIGHT NOW) when: the caller asks to speak to a person, representative, human, manager, owner, or "anyone there" — ANY phrasing that means "I want a real person on the line." Call the `transfer_call` tool. The tool opens a case AND connects them to the on-call number in one step. Do NOT take a message, do NOT collect more info, do NOT promise a callback. Say one short line ("Hold on — connecting you now") and invoke the tool.')
+  }
+  outcomeLines.push('• ESCALATE (flag the call, SMS the on-call number, end the call with a callback promise — NOT a live handoff) when: the situation needs a human but the caller did not ask for one. Examples: caller is upset, it\'s an emergency, the request is outside services or service area, or you can\'t resolve the request. Call `escalate_to_human`. The case is tagged, the on-call number gets paged by SMS, and the call appears in the team\'s "Needs attention" list. Promise a callback within a stated window, then end the call.')
 
   const faqNote = canFaq
     ? ''
@@ -367,11 +380,21 @@ INFORMATION TO COLLECT (only ask for what's missing — never re-ask)
 
 OUTCOME — pick exactly one
 ${outcomeLines.join('\n')}
-
-ESCALATE IMMEDIATELY when any of these is true:
+${hasOnCall
+  ? `\nTRANSFER vs ESCALATE — these are different. Read carefully:
+- TRANSFER means the caller is connected to a human voice on the on-call line right now. The AI is OUT of the call. Use this ONLY when the caller asks for a person.
+- ESCALATE means the AI ends the call cleanly with a callback promise, and the team is paged (SMS to the on-call number + a row in the dashboard's "Needs attention" list). The caller does NOT speak to a human in this call.
+- Deciding question: did the caller ask for a real person? → TRANSFER. Otherwise, if the situation needs a human → ESCALATE.
+- Never call \`escalate_to_human\` when the caller asked for a person. That sends them to voicemail-equivalent. Use \`transfer_call\` instead.\n`
+  : ''}
+ESCALATE IMMEDIATELY (this means: tag the call, page on-call by SMS, surface in "Needs attention" — NOT a live transfer) when any of these is true:
 ${escalateBlock}
-Plus the trade emergency keywords: ${profile.emergencyKeywords}.
-The "asks for a human" trigger is the most important — if the caller says "speak to a representative", "let me talk to a person", "get me a human", or anything similar, stop the script immediately. Capture only their name + callback number, tell them you'll have someone call them right back, and end the call. Do not try to handle anything else.
+Plus the trade emergency keywords: ${profile.emergencyKeywords}.${hasOnCall
+  ? `
+
+CALLER ASKS FOR A PERSON — TRANSFER, do not escalate.
+If the caller says "speak to a representative", "let me talk to a person", "get me a human", "is anyone there", "can I talk to the manager/owner", or anything that means "I want a real human voice now": stop the script, say "Hold on — connecting you now", and call the \`transfer_call\` tool. The tool opens a case AND connects them to the on-call number. Do NOT call \`escalate_to_human\` for this — that puts them in a callback queue when they explicitly asked to talk now.`
+  : `\nIf the caller asks for a human, capture only their name + callback number, tell them you'll have someone call them right back, and end the call. (No on-call number is configured for live transfer.)`}
 
 DO NOT escalate just because:
 ${noEscalateBlock}
@@ -467,7 +490,14 @@ function buildVapiPayload(config: AssistantConfig) {
       checkAvailabilityToolDef,
       bookAppointmentToolDef,
       escalateToHumanToolDef,
-      transferCallToolDef,
+      // Vapi-native transferCall tool. Built dynamically so destinations
+      // reflect the workspace's current oncall_numbers. Omitted entirely
+      // when no on-call number is configured — the prompt falls back to
+      // escalate-only language in that case.
+      ...(() => {
+        const t = buildTransferCallTool(config.oncallNumbers)
+        return t ? [t] : []
+      })(),
     ],
   }
   if (typeof config.temperature === 'number') model.temperature = config.temperature
@@ -538,6 +568,20 @@ export const vapiProvider: VoiceProvider = {
       body: JSON.stringify({
         provider: 'vapi',
         numberDesiredAreaCode: areaCode,
+      }),
+    })
+    return { vapiNumberId: res.id, e164: res.number }
+  },
+
+  async importTwilioNumber({ e164Number, twilioAccountSid, twilioAuthToken, label }): Promise<ProvisionedNumber> {
+    const res = await vapiFetch<{ id: string; number: string }>('/phone-number', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: 'twilio',
+        number: e164Number,
+        twilioAccountSid,
+        twilioAuthToken,
+        name: label ?? 'Echon (BYO Twilio)',
       }),
     })
     return { vapiNumberId: res.id, e164: res.number }

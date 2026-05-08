@@ -99,6 +99,15 @@ export interface VoiceProvider {
 
   listAvailableNumbers(areaCode: string): Promise<AvailableNumber[]>
   provisionNumber(areaCode: string): Promise<ProvisionedNumber>
+  // BYO Twilio: import a number the customer already owns in their own
+  // Twilio account into Vapi. Vapi keeps the Twilio creds attached so it
+  // can place outbound calls and route inbound through the same number.
+  importTwilioNumber(input: {
+    e164Number: string
+    twilioAccountSid: string
+    twilioAuthToken: string
+    label?: string
+  }): Promise<ProvisionedNumber>
   attachNumberToAssistant(vapiNumberId: string, assistantId: string): Promise<void>
   releaseNumber(vapiNumberId: string): Promise<void>
 

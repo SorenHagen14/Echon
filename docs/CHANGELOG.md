@@ -49,6 +49,59 @@ All meaningful changes to the project are logged here.
 
 ---
 
+## [2026-05-08] — Transfer actually fires now (Vapi tool type fix)
+
+Test transcript revealed the AI was calling `transfer_call` correctly, saying "Hold on, connecting you now" — but the call never transferred. Root cause: a Vapi protocol mismatch.
+
+`transfer_call` was registered as a `type: 'function'` tool, which means Vapi only feeds the `result` string back to the model and ignores any `destination` block in the response. To actually execute a SIP/PSTN handoff, Vapi requires `type: 'transferCall'` with destinations baked into the assistant config.
+
+Changes:
+
+- `src/server/voice-tools/transfer-call.ts`: replaced the static `transferCallToolDef` with `buildTransferCallTool(oncallNumbers)`, which returns a Vapi-native `transferCall` tool with destinations populated from the workspace's `oncall_numbers`. Returns `null` when no number is configured (the tool is then omitted from the assistant entirely; the prompt falls back to escalate-only language). Handler still runs on the `tool-calls` webhook event to do side effects (mark call escalated, open case, log event) — Vapi fires that event before executing the transfer.
+- `src/lib/voice/vapi.ts`: `buildVapiPayload` calls `buildTransferCallTool(config.oncallNumbers)` and conditionally includes the result in the assistant's `tools` array.
+- `src/server/voice-tools/dispatch.ts`: re-export updated to `buildTransferCallTool`.
+
+Verified the live Vapi assistant `Acme HVAC — John` is currently showing `transfer_call` as `type: function` (the broken state). After Settings → Voice agent → Save, it'll re-sync with `type: transferCall` and `destinations: [{type: 'number', number: '+1...', message: '...'}]`. Re-test by asking for a representative — should execute the handoff to the on-call line for real this time.
+
+---
+
+## [2026-05-08] — TRANSFER vs ESCALATE split into two distinct outcomes
+
+The prompt was conflating "asks for a representative" with general escalation, so the AI took a message instead of doing a live handoff. Reworked the prompt so the two concepts are clearly separated:
+
+- **TRANSFER** = live handoff to the on-call number, right now. AI exits the call. Triggered ONLY by the caller explicitly asking for a person/representative/human/manager. Calls `transfer_call`, which opens a case AND connects the caller in one step.
+- **ESCALATE** = tag the call, page the on-call by SMS, surface in the dashboard's "Needs attention" list, end the call with a callback promise. Triggered when the situation needs a human but the caller didn't ask for one (upset caller, emergency, out-of-services, can't resolve). Calls `escalate_to_human`.
+
+Changes in `src/lib/voice/vapi.ts` (`buildSystemPrompt`):
+- Added a "TRANSFER vs ESCALATE — these are different" definitions block, including the deciding question ("Did the caller ask for a real person?").
+- Removed "Caller asks for a human or representative" from the default ESCALATE IMMEDIATELY trigger list when an on-call number is configured (it lives under TRANSFER instead).
+- Rewrote the misleading "asks for a human" paragraph that previously sat under ESCALATE IMMEDIATELY and told the AI to take a message + end the call.
+- Tagged ESCALATE IMMEDIATELY's heading with "(this means: tag, SMS, Needs attention — NOT a live transfer)" so the model can't blur the two.
+
+Changes in `src/server/voice-tools/transfer-call.ts`:
+- Handler now calls `ensureCaseForCallServer` so a case is opened on transfer (user wants both live handoff *and* a case on file for follow-up).
+
+**SMS transport caveat:** the prompt promises an SMS goes to the on-call when ESCALATE fires. Today `escalate_to_human` calls `notify()` which writes a row to `notification_events` and the dashboard's "Needs attention" surfaces it — but the actual SMS transport (Twilio) isn't wired yet (see `_project/BACKLOG.md` → "Notify operators on case assignment" item, same blocker). When SMS lands, no call-site changes needed — `notify()` will start delivering. Kept the prompt language matching the intended end state, since (a) it's accurate the moment SMS ships and (b) "your case appears on the team's dashboard immediately" is the load-bearing promise to the caller.
+
+The on-call number itself was never "missing from Vapi" — it lives in `agent_configs.oncall_numbers` and is served live via the webhook on each transfer (the Vapi assistant correctly has no embedded number; the function tool returns the destination at call time).
+
+User must re-sync their assistant (Settings → Voice agent → Save) to push the new prompt to Vapi.
+
+Also logged BACKLOG item for **CSR-editable cases + manual call entry** — CSRs need to edit case fields and create call records manually for non-Vapi channels (texts, walk-ins, callbacks).
+
+---
+
+## [2026-05-08] — Theme switcher actually switches the theme
+
+Tailwind v4 with `@import "tailwindcss"` defaults `dark:` to `prefers-color-scheme`, ignoring the `.dark` class that next-themes toggles. Plus the body background CSS vars were also wired to the media query. Both moved to class-based in `globals.css`:
+
+- Added `@custom-variant dark (&:where(.dark, .dark *));` so Tailwind's `dark:` utilities trigger off `.dark`.
+- Replaced `@media (prefers-color-scheme: dark)` with `.dark { ... }` for the body vars.
+
+Light / Dark / System in the profile menu now switches the whole page. System still follows `prefers-color-scheme` via next-themes.
+
+---
+
 ## [2026-05-08] — Profile dropdown replaces Settings nav item
 
 - New `ProfileMenu` component in the top-right: avatar (email initials) opens a dropdown with the user's email, a Settings link, a light/dark/system theme toggle (wired to `next-themes`), and Sign out.
