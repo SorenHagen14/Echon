@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { claimNumber } from '@/app/onboarding/actions'
+import type { AreaCodeSuggestion } from '@/lib/voice/area-code'
 import { SUPPORT_CONTACT } from '../_constants'
 
 function formatPhone(e164: string): string {
@@ -24,8 +25,14 @@ export type PhoneNumberRow = {
 // truth — onboarding writes it, this section reads it, both stay synced.
 //
 // One number per workspace. Need more? Contact support.
-export function PhoneNumberSection({ existing }: { existing: PhoneNumberRow | null }) {
-  const [areaCode, setAreaCode] = useState('')
+export function PhoneNumberSection({
+  existing,
+  suggestion,
+}: {
+  existing: PhoneNumberRow | null
+  suggestion: AreaCodeSuggestion | null
+}) {
+  const [areaCode, setAreaCode] = useState(suggestion?.areaCode ?? '')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
@@ -75,6 +82,13 @@ export function PhoneNumberSection({ existing }: { existing: PhoneNumberRow | nu
         Pick an area code — we&apos;ll claim a phone number for your AI
         receptionist instantly.
       </p>
+      {suggestion && (
+        <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+          {suggestion.source === 'phone'
+            ? 'Prefilled from your business phone.'
+            : `Prefilled based on your business address (${suggestion.state}).`}
+        </p>
+      )}
       <div className="flex gap-2">
         <input
           type="text"

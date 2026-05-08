@@ -41,7 +41,7 @@ on 2026-05-01; do not reintroduce DM/messaging concepts.
 - Two roles: **Admin** = the Echon developer (internal platform dashboard). **Client** = the paying HVAC business using Echon. Always respect this boundary.
 - Within a Client workspace, plan for **three internal roles** (not yet built — see BACKLOG.md): **Manager** (full control), **CSR** (can resolve cases the AI didn't auto-resolve, no settings/billing), **Tech** (read-only on the case + who's on it + job details). Before building any feature that touches case state, assignments, settings, billing, or customer data, **ask the user clarifying questions** about which role(s) should see/act on it — don't assume. Each role will also connect their own calendar (Google / Outlook / native phone).
 - Every Supabase table holding Client-scoped data must have Postgres RLS enabled with an explicit policy. Never rely on application-layer filtering alone for data isolation.
-- Top nav order: **Dashboard · Calls · Customers · Schedule · Settings**.
+- Top nav order: **Dashboard · Cases · Calls · Customers · Schedule**. Settings, theme toggle, and Sign out live in a profile dropdown in the top-right (`src/app/_components/ProfileMenu.tsx`).
 - Voice agent settings live under Settings → Voice agent (see `_wireframes/voice_agent_config.md`).
 - Three core workflows (see `_project/WORKFLOWS.md`): WF-01 (book), WF-02 (quote request), WF-03 (after-hours triage). Workflow selection is implicit (driven by agent prompt + tools + Client config), not branched in code.
 - Do not build anything in BACKLOG.md unless explicitly asked.

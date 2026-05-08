@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { signOut } from '../(auth)/actions'
+import { ProfileMenu } from './ProfileMenu'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard' },
@@ -10,7 +10,6 @@ const NAV_ITEMS = [
   { href: '/calls', label: 'Calls' },
   { href: '/customers', label: 'Customers' },
   { href: '/schedule', label: 'Schedule' },
-  { href: '/settings', label: 'Settings' },
 ] as const
 
 export function TopNav({ userEmail }: { userEmail: string | null }) {
@@ -48,19 +47,7 @@ export function TopNav({ userEmail }: { userEmail: string | null }) {
         </nav>
 
         <div className="flex items-center gap-3 justify-self-end">
-          {userEmail && (
-            <span className="hidden text-xs text-zinc-500 sm:inline dark:text-zinc-400">
-              {userEmail}
-            </span>
-          )}
-          <form action={signOut}>
-            <button
-              type="submit"
-              className="rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              Sign out
-            </button>
-          </form>
+          <ProfileMenu userEmail={userEmail} />
         </div>
       </div>
     </header>

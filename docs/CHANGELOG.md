@@ -4,6 +4,59 @@ All meaningful changes to the project are logged here.
 
 ---
 
+## [2026-05-08] — Notifications, after-hours alerts, escalation wiring
+
+- New `src/lib/notifications/` module with a single `notify()` entry
+  point. Every operator-facing alert (mid-call escalations, after-hours
+  messages, flagged calls, AI failures, quote requests) flows through
+  here. Today it records to `notification_events` and console-logs;
+  email/SMS transports plug in later without touching call sites.
+- Migration 022 (`db/022_notifications.sql` +
+  `supabase/20260508040000_notifications.sql`):
+  - `agent_configs.notification_prefs` jsonb (per-event toggles +
+    `contact_email`).
+  - `notification_events` audit table with workspace-scoped RLS,
+    delivery status (`queued`/`sent`/`failed`/`skipped`), channel
+    (`inapp`/`email`/`sms`), and links to the originating call /
+    case / customer.
+- Wired into the call lifecycle:
+  - `escalate_to_human` voice tool fires `emergency_escalation` (when
+    urgency=emergency) or `escalation_requested` mid-call. Failures
+    are swallowed so a notification glitch never breaks a live call.
+  - `process-call-end` decides notifications from extraction outcome
+    + urgency + a new business-hours check (timezone-aware via
+    `Intl.DateTimeFormat`). Emits flagged/quote/after-hours/AI-failed.
+- Settings → After-hours: real form replaces the placeholder. Mode
+  selector (Take a message / Escalate emergencies / Live transfer)
+  + on-call number list (E.164 validation, dedupe, max 10). Saves
+  to `agent_configs.after_hours_mode` + `oncall_numbers` and
+  re-syncs Vapi (the prompt builder already consumes both).
+- Settings → Notifications: real form replaces the placeholder.
+  Per-event toggles, contact-email override (falls back to the
+  account email), SMS section explicitly marked Coming soon.
+
+---
+
+## [2026-05-08] — Number provisioning: smart area-code prefill
+
+- New `src/lib/voice/area-code.ts` derives a default area code from the
+  business phone (most reliable) or the US state parsed out of the
+  business address. Falls back to a per-state primary area-code map.
+- Onboarding Step 11 and Settings → Phone number both prefill the area-code
+  input from this suggestion and show a one-line hint explaining where it
+  came from. User can override before claiming.
+- Server-side computation only — no extra round-trip from the client.
+
+---
+
+## [2026-05-08] — Profile dropdown replaces Settings nav item
+
+- New `ProfileMenu` component in the top-right: avatar (email initials) opens a dropdown with the user's email, a Settings link, a light/dark/system theme toggle (wired to `next-themes`), and Sign out.
+- Removed Settings from the top nav. New nav order: Dashboard · Cases · Calls · Customers · Schedule.
+- Click-outside / Escape close the menu. Updated CLAUDE.md to match.
+
+---
+
 ## [2026-05-08] — Dashboard: simpler, more direct
 
 Round of cleanup driven by "I like everything super simple and easy to read":

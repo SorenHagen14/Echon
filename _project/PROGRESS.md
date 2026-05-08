@@ -285,15 +285,30 @@ Still to land (non-blocking for Phase 6 dashboard work):
       `src/server/process-call-end.ts` + `src/lib/ai/post-call.ts`.
       Pure orchestration design — easy to lift into a real Inngest
       function later if/when retry/observability matter.
-      **Not yet:** notifications (after-hours alerts, escalation acks)
-      — needs SMTP + SMS infra. Tracked separately.
+- [x] Notification dispatcher + Settings → After-hours / Notifications
+      (2026-05-08). `src/lib/notifications/notify()` records every alert
+      to a workspace-scoped `notification_events` audit table
+      (migration 022) and is called from the `escalate_to_human` voice
+      tool and `process-call-end` (emergency, after-hours message,
+      flagged-for-review, quote request, AI failure). Settings →
+      After-hours writes `after_hours_mode` + `oncall_numbers` and
+      re-syncs Vapi; Settings → Notifications writes
+      `agent_configs.notification_prefs` with per-event toggles + a
+      contact-email override (defaults to the account email).
+      **Still needed:** SMTP transport — call sites already populate
+      subject/body/recipient, so flipping on Resend is a one-place
+      change in `src/lib/notifications/index.ts`. SMS still BACKLOG.
   - Anthropic Sonnet extracts structured fields from transcript
   - Updates `customers`, writes `calls.summary` + `outcome`, links
     appointment if booked
   - Fires notifications (after-hours alerts, escalation acks)
-- [ ] Number provisioning polish (BACKLOG): geocode `business_address`
-      to default area code; decide Vapi-managed vs BYO Twilio for full
-      area-code coverage
+- [x] Number provisioning area-code prefill (2026-05-08) —
+      `src/lib/voice/area-code.ts` derives a default NPA from
+      `business_phone` (preferred) or the state parsed from
+      `business_address`. Onboarding Step 11 + Settings → Phone number
+      both prefill the input and show a "prefilled from X" hint.
+- [ ] Number provisioning: BYO Twilio path for full area-code coverage
+      when Vapi-managed inventory is exhausted in the requested NPA
 
 ### Phase 5 — Onboarding v2 ✅ substantially complete (2026-05-04)
 

@@ -79,13 +79,27 @@ async function renderSection(
         </div>
       )
     }
-    case 'notifications':
+    case 'notifications': {
+      const { data: cfg } = await supabase
+        .from('agent_configs')
+        .select('notification_prefs')
+        .eq('workspace_id', workspaceId)
+        .single()
+      const prefs = (cfg?.notification_prefs as Record<string, unknown> | null) ?? {}
+      const { NotificationsSection } = await import('../_components/NotificationsSection')
       return (
-        <Placeholder>
-          Email + SMS toggles for emergency escalations, daily digests, and
-          missed-call alerts.
-        </Placeholder>
+        <NotificationsSection
+          initial={{
+            emergency_escalation: prefs.emergency_escalation !== false,
+            quote_request:        prefs.quote_request        !== false,
+            flagged_for_review:   prefs.flagged_for_review   !== false,
+            ai_failed:            prefs.ai_failed            !== false,
+            contact_email:        (prefs.contact_email as string | null) ?? null,
+          }}
+          ownerEmail={userEmail || null}
+        />
       )
+    }
 
     // ---- Business --------------------------------------------------------
     case 'location': {
@@ -275,8 +289,42 @@ async function renderSection(
       )
     }
 
-    case 'after-hours':
-      return <Placeholder>What the AI does outside business hours: take a message, escalate to on-call, or live-transfer.</Placeholder>
+    case 'after-hours': {
+      const { data: cfg } = await supabase
+        .from('agent_configs')
+        .select('after_hours_mode, oncall_numbers')
+        .eq('workspace_id', workspaceId)
+        .single()
+      const { AfterHoursSection } = await import('../_components/AfterHoursSection')
+      const mode = ((cfg?.after_hours_mode as string | null) ?? 'messages_only') as
+        'messages_only' | 'escalate' | 'live_transfer'
+      const oncall = Array.isArray(cfg?.oncall_numbers)
+        ? (cfg!.oncall_numbers as Array<Record<string, unknown>>).map((r) => ({
+            phone: typeof r.phone === 'string' ? r.phone : '',
+            label: typeof r.label === 'string' ? r.label : '',
+          })).filter((r) => r.phone.length > 0)
+        : []
+      return <AfterHoursSection initialMode={mode} initialOncall={oncall} />
+    }
+
+    case 'on-call': {
+      const { data: cfg } = await supabase
+        .from('agent_configs')
+        .select('oncall_numbers')
+        .eq('workspace_id', workspaceId)
+        .single()
+      const oncall = Array.isArray(cfg?.oncall_numbers)
+        ? (cfg!.oncall_numbers as Array<{ phone?: string; label?: string }>)
+        : []
+      const primary = oncall[0] ?? null
+      const { OnCallSection } = await import('../_components/OnCallSection')
+      return (
+        <OnCallSection
+          initialPhone={(primary?.phone as string | null) ?? null}
+          initialLabel={(primary?.label as string | null) ?? null}
+        />
+      )
+    }
 
     case 'escalation': {
       const { data: cfg } = await supabase
@@ -295,15 +343,32 @@ async function renderSection(
 
     // ---- Connections -----------------------------------------------------
     case 'phone-number': {
-      const { data: phoneRow } = await supabase
-        .from('phone_numbers')
-        .select('e164_number, status, provisioned_at')
-        .eq('workspace_id', workspaceId)
-        .eq('status', 'active')
-        .order('provisioned_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      return <PhoneNumberSection existing={(phoneRow as PhoneNumberRow | null) ?? null} />
+      const [{ data: phoneRow }, { data: cfg }] = await Promise.all([
+        supabase
+          .from('phone_numbers')
+          .select('e164_number, status, provisioned_at')
+          .eq('workspace_id', workspaceId)
+          .eq('status', 'active')
+          .order('provisioned_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('agent_configs')
+          .select('business_phone, business_address')
+          .eq('workspace_id', workspaceId)
+          .single(),
+      ])
+      const { suggestAreaCode } = await import('@/lib/voice/area-code')
+      const suggestion = suggestAreaCode({
+        phone: cfg?.business_phone,
+        address: cfg?.business_address,
+      })
+      return (
+        <PhoneNumberSection
+          existing={(phoneRow as PhoneNumberRow | null) ?? null}
+          suggestion={suggestion}
+        />
+      )
     }
 
     case 'calendar':

@@ -1,4 +1,5 @@
 import type { ToolHandler } from './types'
+import { notify } from '@/lib/notifications'
 
 // escalate_to_human({ reason, urgency }) — fires when the agent decides
 // the call needs a human. Marks the call flagged_for_review with the
@@ -35,6 +36,30 @@ export const escalateToHuman: ToolHandler = async (ctx, args) => {
         callback_phone: callbackPhone,
       },
     })
+
+    // Mid-call alert. Emergency-urgency escalations route as
+    // emergency_escalation so the prefs flag matches the operator's
+    // expectation; other urgencies use escalation_requested. Failures
+    // are swallowed — never let a notification glitch break a live call.
+    try {
+      const eventType = urgency === 'emergency'
+        ? ('emergency_escalation' as const)
+        : ('escalation_requested' as const)
+      await notify(ctx.supabase, {
+        workspaceId: ctx.workspaceId,
+        eventType,
+        callId: ctx.callRowId,
+        subject: urgency === 'emergency'
+          ? 'Emergency call — caller is on the line'
+          : 'AI is escalating a call to your team',
+        body:
+          `${callerName ? callerName + ' ' : ''}is asking for a human. ` +
+          `Callback: ${callbackPhone ?? 'unknown'}. Reason: ${reason}`,
+        payload: { reason, urgency, caller_name: callerName, callback_phone: callbackPhone },
+      })
+    } catch (e) {
+      console.error('[escalate_to_human] notify failed', { err: String(e) })
+    }
   }
 
   // Tell the agent what to say back to the caller. Phrasing depends on

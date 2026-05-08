@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { advanceStep, claimNumber } from '../actions'
+import type { AreaCodeSuggestion } from '@/lib/voice/area-code'
 
 const PRIMARY =
   'rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200'
@@ -17,8 +18,10 @@ function formatPhone(e164: string): string {
   return e164
 }
 
-export function Step11NumberProvisioning() {
-  const [areaCode, setAreaCode] = useState('')
+export function Step11NumberProvisioning({
+  suggestion,
+}: { suggestion: AreaCodeSuggestion | null }) {
+  const [areaCode, setAreaCode] = useState(suggestion?.areaCode ?? '')
   const [claimed, setClaimed] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
@@ -139,6 +142,18 @@ export function Step11NumberProvisioning() {
         <p className="mb-3 text-xs text-zinc-500">
           A 3-digit area code (like the first 3 digits of your business phone).
           We&apos;ll pick an available number for you.
+          {suggestion?.source === 'phone' && (
+            <span className="ml-1">
+              Prefilled from your business phone — change it if you want a
+              different area code.
+            </span>
+          )}
+          {suggestion?.source === 'state' && (
+            <span className="ml-1">
+              Prefilled based on your business address ({suggestion.state}) —
+              change it if you want a different area code.
+            </span>
+          )}
         </p>
         <div className="flex gap-2">
           <input

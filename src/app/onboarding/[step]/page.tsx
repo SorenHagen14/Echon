@@ -193,7 +193,26 @@ async function renderStep(n: number, userId: string) {
   }
 
   if (n === 10) return <Step10Calendar />
-  if (n === 11) return <Step11NumberProvisioning />
+  if (n === 11) {
+    const { data: ws } = await supabase
+      .from('workspaces')
+      .select('id')
+      .eq('owner_id', userId)
+      .single()
+    const { data: cfg } = ws
+      ? await supabase
+          .from('agent_configs')
+          .select('business_phone, business_address')
+          .eq('workspace_id', ws.id)
+          .single()
+      : { data: null }
+    const { suggestAreaCode } = await import('@/lib/voice/area-code')
+    const suggestion = suggestAreaCode({
+      phone: cfg?.business_phone,
+      address: cfg?.business_address,
+    })
+    return <Step11NumberProvisioning suggestion={suggestion} />
+  }
 
   if (n === 12) return <Step12AllSet />
 

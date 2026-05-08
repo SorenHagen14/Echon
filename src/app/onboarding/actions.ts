@@ -8,6 +8,7 @@ import { TOTAL_STEPS, TEST_MODE, isValidStep, OVERLAY_MESSAGES, getServiceCatalo
 import type { BusinessType } from './_constants'
 import { syncVapiAssistant } from './_voice-sync'
 import { voice } from '@/lib/voice'
+import { suggestAreaCode, type AreaCodeSuggestion } from '@/lib/voice/area-code'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -599,6 +600,31 @@ export async function getTestCallConfig(): Promise<TestCallConfig> {
 export type ClaimNumberResult =
   | { ok: true; e164: string }
   | { ok: false; reason: string }
+
+// Read business_phone + business_address off the workspace's agent_config
+// and return an area-code prefill suggestion. Returns null if neither
+// signal is plausible — the UI just leaves the input empty in that case.
+export async function getSuggestedAreaCode(): Promise<AreaCodeSuggestion | null> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const { data: workspace } = await supabase
+    .from('workspaces')
+    .select('id')
+    .eq('owner_id', user.id)
+    .single()
+  if (!workspace) return null
+
+  const { data: cfg } = await supabase
+    .from('agent_configs')
+    .select('business_phone, business_address')
+    .eq('workspace_id', workspace.id)
+    .single()
+  if (!cfg) return null
+
+  return suggestAreaCode({ phone: cfg.business_phone, address: cfg.business_address })
+}
 
 export async function claimNumber(areaCode: string): Promise<ClaimNumberResult> {
   if (!/^\d{3}$/.test(areaCode)) {
